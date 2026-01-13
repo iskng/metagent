@@ -2,14 +2,13 @@
 # metagent.sh - Install and sync agent workflows
 #
 # Usage:
+#   metagent link                        Setup metagent globally (first time)
 #   metagent install [options] [path]    Install agent to repo
 #   metagent sync [options] [path]       Sync prompts to repo
-#   metagent link                        Add metagent to PATH
-#   metagent unlink                      Remove metagent from PATH
+#   metagent unlink                      Remove metagent
 #
 # Install options:
 #   -a, --agent NAME    Agent to install (default: code)
-#   --no-commands       Skip installing ~/.claude/commands
 #
 # Sync options:
 #   -a, --agent NAME    Agent to sync (default: code)
@@ -34,7 +33,6 @@ NC='\033[0m'
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 AGENT="code"
 DRY_RUN=false
-INSTALL_COMMANDS=true
 
 # ============================================================================
 # Helper Functions
@@ -44,31 +42,26 @@ show_help() {
     echo "metagent - Install and sync agent workflows"
     echo ""
     echo "Usage:"
-    echo "  metagent install [options] [path]    Install agent to repo (default: current dir)"
-    echo "  metagent sync [options] [path]       Sync prompts to repo (default: current dir)"
-    echo "  metagent link                        Add metagent to PATH (~/.local/bin)"
-    echo "  metagent unlink                      Remove metagent from PATH"
+    echo "  metagent link                        Setup globally (first time)"
+    echo "  metagent install [options] [path]    Install agent to repo"
+    echo "  metagent sync [options] [path]       Sync prompts to repo"
+    echo "  metagent unlink                      Remove metagent"
     echo ""
-    echo "Install options:"
-    echo "  -a, --agent NAME    Agent to install (default: code)"
-    echo "  --no-commands       Skip installing ~/.claude/commands"
-    echo ""
-    echo "Sync options:"
-    echo "  -a, --agent NAME    Agent to sync (default: code)"
+    echo "Install/Sync options:"
+    echo "  -a, --agent NAME    Agent to use (default: code)"
     echo "  --all               Sync all tracked repos"
-    echo "  --dry-run           Preview changes"
+    echo "  --dry-run           Preview sync changes"
     echo ""
-    echo "Common options:"
+    echo "Other options:"
     echo "  -l, --list          List available agents"
     echo "  --tracked           List tracked repos"
     echo "  -h, --help          Show help"
     echo ""
     echo "Examples:"
+    echo "  metagent link                        # First time setup"
     echo "  metagent install                     # Install to current dir"
     echo "  metagent install ~/projects/app      # Install to specific dir"
-    echo "  metagent sync                        # Sync current dir"
     echo "  metagent sync --all                  # Sync all tracked repos"
-    echo "  metagent link                        # Make 'metagent' available globally"
 }
 
 list_agents() {
@@ -217,54 +210,23 @@ agent=$AGENT
 installed=$(date +%Y-%m-%d)
 EOF
 
-    # Install slash commands
-    if [ "$INSTALL_COMMANDS" = true ]; then
-        local commands_dir="$HOME/.claude/commands"
-        echo -e "${BLUE}Installing slash commands to ${commands_dir}...${NC}"
-        mkdir -p "$commands_dir"
-
-        ln -sf "$target_repo/.agents/$AGENT/BOOTSTRAP_PROMPT.md" "$commands_dir/bootstrap.md"
-        echo -e "  ${GREEN}✓${NC} /bootstrap -> .agents/$AGENT/BOOTSTRAP_PROMPT.md"
-
-        ln -sf "$target_repo/.agents/$AGENT/SPEC_PROMPT.md" "$commands_dir/spec.md"
-        echo -e "  ${GREEN}✓${NC} /spec -> .agents/$AGENT/SPEC_PROMPT.md"
-
-        ln -sf "$target_repo/.agents/$AGENT/PLANNING_PROMPT.md" "$commands_dir/plan.md"
-        echo -e "  ${GREEN}✓${NC} /plan -> .agents/$AGENT/PLANNING_PROMPT.md"
-        echo ""
-    fi
-
+    echo ""
     echo -e "${GREEN}✓ Agent '$AGENT' installed successfully!${NC}"
     echo ""
     echo "Installed to: $target_repo/.agents/$AGENT/"
-    if [ "$INSTALL_COMMANDS" = true ]; then
-        echo ""
-        echo "Slash commands installed:"
-        echo "  /bootstrap  - Configure workflow for this repo"
-        echo "  /spec       - Start specification phase for a task"
-        echo "  /plan       - Generate implementation plan from specs"
-    fi
     echo ""
     echo -e "${YELLOW}Next steps:${NC}"
     echo "1. Run bootstrap to configure for your project:"
-    echo "   cd $target_repo"
-    if [ "$INSTALL_COMMANDS" = true ]; then
-        echo "   /bootstrap"
-    else
-        echo "   cat .agents/$AGENT/BOOTSTRAP_PROMPT.md | claude-code"
-    fi
+    echo "   /bootstrap"
     echo ""
     echo "2. Start a task:"
-    if [ "$INSTALL_COMMANDS" = true ]; then
-        echo "   /spec my-feature"
-        echo "   /plan my-feature"
-    else
-        echo "   .agents/$AGENT/scripts/spec.sh my-feature"
-        echo "   cat .agents/$AGENT/SPEC_PROMPT.md | claude-code"
-    fi
+    echo "   /spec my-feature"
+    echo "   /plan my-feature"
     echo ""
     echo "3. Run build loop:"
     echo "   while :; do cat .agents/$AGENT/tasks/{taskname}/PROMPT.md | claude-code; done"
+    echo ""
+    echo "(If slash commands aren't available, run: metagent link)"
 }
 
 # ============================================================================
@@ -403,14 +365,43 @@ do_sync() {
 
 do_link() {
     local bin_dir="$HOME/.local/bin"
-    mkdir -p "$bin_dir"
+    local metagent_dir="$HOME/.metagent"
+    local commands_dir="$HOME/.claude/commands"
 
+    # Create directories
+    mkdir -p "$bin_dir"
+    mkdir -p "$metagent_dir"
+    mkdir -p "$commands_dir"
+
+    # Link metagent to PATH
     ln -sf "$SCRIPT_DIR/metagent.sh" "$bin_dir/metagent"
-    echo -e "${GREEN}✓ Linked metagent to $bin_dir/metagent${NC}"
+    echo -e "${GREEN}✓${NC} Linked metagent to $bin_dir/metagent"
+
+    # Copy prompts to ~/.metagent/
+    echo -e "${BLUE}Installing prompts to $metagent_dir...${NC}"
+    if [ -d "$SCRIPT_DIR/$AGENT/prompts" ]; then
+        for file in "$SCRIPT_DIR/$AGENT/prompts"/*; do
+            if [ -f "$file" ]; then
+                cp "$file" "$metagent_dir/"
+                echo -e "  ${GREEN}✓${NC} $(basename "$file")"
+            fi
+        done
+    fi
+
+    # Link slash commands to ~/.metagent/ prompts
+    echo -e "${BLUE}Installing slash commands...${NC}"
+    ln -sf "$metagent_dir/BOOTSTRAP_PROMPT.md" "$commands_dir/bootstrap.md"
+    echo -e "  ${GREEN}✓${NC} /bootstrap"
+
+    ln -sf "$metagent_dir/SPEC_PROMPT.md" "$commands_dir/spec.md"
+    echo -e "  ${GREEN}✓${NC} /spec"
+
+    ln -sf "$metagent_dir/PLANNING_PROMPT.md" "$commands_dir/plan.md"
+    echo -e "  ${GREEN}✓${NC} /plan"
 
     # Check if ~/.local/bin is in PATH
+    echo ""
     if [[ ":$PATH:" != *":$bin_dir:"* ]]; then
-        echo ""
         echo -e "${YELLOW}Note: $bin_dir is not in your PATH${NC}"
         echo "Add this to your shell profile (.bashrc, .zshrc, etc.):"
         echo ""
@@ -418,19 +409,43 @@ do_link() {
         echo ""
         echo "Then restart your shell or run: source ~/.zshrc"
     else
-        echo ""
-        echo "You can now run 'metagent' from anywhere."
+        echo -e "${GREEN}✓ metagent is ready to use${NC}"
     fi
+
+    echo ""
+    echo "Installed:"
+    echo "  ~/.local/bin/metagent     - CLI tool"
+    echo "  ~/.metagent/              - Global prompts"
+    echo "  ~/.claude/commands/       - Slash commands (/bootstrap, /spec, /plan)"
 }
 
 do_unlink() {
     local bin_dir="$HOME/.local/bin"
+    local metagent_dir="$HOME/.metagent"
+    local commands_dir="$HOME/.claude/commands"
+
+    # Remove metagent from PATH
     if [ -L "$bin_dir/metagent" ]; then
         rm "$bin_dir/metagent"
-        echo -e "${GREEN}✓ Removed metagent from $bin_dir${NC}"
-    else
-        echo -e "${YELLOW}metagent is not linked in $bin_dir${NC}"
+        echo -e "${GREEN}✓${NC} Removed $bin_dir/metagent"
     fi
+
+    # Remove slash commands
+    for cmd in bootstrap.md spec.md plan.md; do
+        if [ -L "$commands_dir/$cmd" ]; then
+            rm "$commands_dir/$cmd"
+            echo -e "${GREEN}✓${NC} Removed $commands_dir/$cmd"
+        fi
+    done
+
+    # Remove ~/.metagent/
+    if [ -d "$metagent_dir" ]; then
+        rm -rf "$metagent_dir"
+        echo -e "${GREEN}✓${NC} Removed $metagent_dir"
+    fi
+
+    echo ""
+    echo -e "${GREEN}✓ metagent unlinked${NC}"
 }
 
 # ============================================================================
@@ -480,10 +495,6 @@ while [[ $# -gt 0 ]]; do
         --tracked)
             list_tracked
             exit 0
-            ;;
-        --no-commands)
-            INSTALL_COMMANDS=false
-            shift
             ;;
         --all)
             SYNC_ALL=true
