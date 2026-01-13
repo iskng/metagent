@@ -6,6 +6,7 @@
 # Options:
 #   -a, --agent NAME    Agent to install (default: code)
 #   -l, --list          List available agents
+#   --no-commands       Skip installing ~/.claude/commands
 #   -h, --help          Show this help
 #
 # If no path given, installs to current directory.
@@ -15,7 +16,8 @@
 # 2. Copy all generic prompts
 # 3. Copy template files for project-specific config
 # 4. Create empty tasks directory
-# 5. Prompt to run bootstrap
+# 5. Install slash commands to ~/.claude/commands/
+# 6. Prompt to run bootstrap
 
 set -e
 
@@ -29,6 +31,7 @@ NC='\033[0m' # No Color
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 AGENT="code"
 TARGET_REPO=""
+INSTALL_COMMANDS=true
 
 show_help() {
     echo "Usage: ./install.sh [options] [/path/to/target/repo]"
@@ -36,6 +39,7 @@ show_help() {
     echo "Options:"
     echo "  -a, --agent NAME    Agent to install (default: code)"
     echo "  -l, --list          List available agents"
+    echo "  --no-commands       Skip installing ~/.claude/commands"
     echo "  -h, --help          Show this help"
     echo ""
     echo "If no path given, installs to current directory."
@@ -44,6 +48,7 @@ show_help() {
     echo "  ./install.sh                      # Install 'code' agent to current dir"
     echo "  ./install.sh ~/projects/my-app    # Install 'code' agent to specific dir"
     echo "  ./install.sh -a code .            # Explicitly specify agent"
+    echo "  ./install.sh --no-commands        # Skip slash command installation"
 }
 
 list_agents() {
@@ -70,6 +75,10 @@ while [[ $# -gt 0 ]]; do
         -l|--list)
             list_agents
             exit 0
+            ;;
+        --no-commands)
+            INSTALL_COMMANDS=false
+            shift
             ;;
         -h|--help)
             show_help
@@ -181,16 +190,53 @@ agent=$AGENT
 installed=$(date +%Y-%m-%d)
 EOF
 
-echo ""
+# Install slash commands to ~/.claude/commands/
+if [ "$INSTALL_COMMANDS" = true ]; then
+    COMMANDS_DIR="$HOME/.claude/commands"
+    echo -e "${BLUE}Installing slash commands to ${COMMANDS_DIR}...${NC}"
+    mkdir -p "$COMMANDS_DIR"
+
+    # Symlink the prompt files as commands
+    ln -sf "$TARGET_REPO/.agents/$AGENT/BOOTSTRAP_PROMPT.md" "$COMMANDS_DIR/bootstrap.md"
+    echo -e "  ${GREEN}✓${NC} /bootstrap -> .agents/$AGENT/BOOTSTRAP_PROMPT.md"
+
+    ln -sf "$TARGET_REPO/.agents/$AGENT/SPEC_PROMPT.md" "$COMMANDS_DIR/spec.md"
+    echo -e "  ${GREEN}✓${NC} /spec -> .agents/$AGENT/SPEC_PROMPT.md"
+
+    ln -sf "$TARGET_REPO/.agents/$AGENT/PLANNING_PROMPT.md" "$COMMANDS_DIR/plan.md"
+    echo -e "  ${GREEN}✓${NC} /plan -> .agents/$AGENT/PLANNING_PROMPT.md"
+
+    echo ""
+fi
+
 echo -e "${GREEN}✓ Agent '$AGENT' installed successfully!${NC}"
 echo ""
 echo "Installed to: $TARGET_REPO/.agents/$AGENT/"
+if [ "$INSTALL_COMMANDS" = true ]; then
+    echo ""
+    echo "Slash commands installed:"
+    echo "  /bootstrap  - Configure workflow for this repo"
+    echo "  /spec       - Start specification phase for a task"
+    echo "  /plan       - Generate implementation plan from specs"
+fi
 echo ""
 echo -e "${YELLOW}Next steps:${NC}"
 echo "1. Run bootstrap to configure for your project:"
 echo "   cd $TARGET_REPO"
-echo "   cat .agents/$AGENT/BOOTSTRAP_PROMPT.md | claude-code"
+if [ "$INSTALL_COMMANDS" = true ]; then
+    echo "   /bootstrap"
+else
+    echo "   cat .agents/$AGENT/BOOTSTRAP_PROMPT.md | claude-code"
+fi
 echo ""
 echo "2. Start a task:"
-echo "   .agents/$AGENT/scripts/spec.sh my-feature"
-echo "   cat .agents/$AGENT/SPEC_PROMPT.md | claude-code"
+if [ "$INSTALL_COMMANDS" = true ]; then
+    echo "   /spec my-feature"
+    echo "   /plan my-feature"
+else
+    echo "   .agents/$AGENT/scripts/spec.sh my-feature"
+    echo "   cat .agents/$AGENT/SPEC_PROMPT.md | claude-code"
+fi
+echo ""
+echo "3. Run build loop:"
+echo "   while :; do cat .agents/$AGENT/tasks/{taskname}/PROMPT.md | claude-code; done"
