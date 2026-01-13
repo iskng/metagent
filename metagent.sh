@@ -366,12 +366,14 @@ do_sync() {
 do_link() {
     local bin_dir="$HOME/.local/bin"
     local metagent_dir="$HOME/.metagent"
-    local commands_dir="$HOME/.claude/commands"
+    local claude_commands="$HOME/.claude/commands"
+    local codex_commands="$HOME/.codex/commands"
 
     # Create directories
     mkdir -p "$bin_dir"
     mkdir -p "$metagent_dir"
-    mkdir -p "$commands_dir"
+    mkdir -p "$claude_commands"
+    mkdir -p "$codex_commands"
 
     # Link metagent to PATH
     ln -sf "$SCRIPT_DIR/metagent.sh" "$bin_dir/metagent"
@@ -388,15 +390,15 @@ do_link() {
         done
     fi
 
-    # Link slash commands to ~/.metagent/ prompts
+    # Link slash commands to ~/.metagent/ prompts (for both Claude and Codex)
     echo -e "${BLUE}Installing slash commands...${NC}"
-    ln -sf "$metagent_dir/BOOTSTRAP_PROMPT.md" "$commands_dir/bootstrap.md"
+    for commands_dir in "$claude_commands" "$codex_commands"; do
+        ln -sf "$metagent_dir/BOOTSTRAP_PROMPT.md" "$commands_dir/bootstrap.md"
+        ln -sf "$metagent_dir/SPEC_PROMPT.md" "$commands_dir/spec.md"
+        ln -sf "$metagent_dir/PLANNING_PROMPT.md" "$commands_dir/plan.md"
+    done
     echo -e "  ${GREEN}✓${NC} /bootstrap"
-
-    ln -sf "$metagent_dir/SPEC_PROMPT.md" "$commands_dir/spec.md"
     echo -e "  ${GREEN}✓${NC} /spec"
-
-    ln -sf "$metagent_dir/PLANNING_PROMPT.md" "$commands_dir/plan.md"
     echo -e "  ${GREEN}✓${NC} /plan"
 
     # Check if ~/.local/bin is in PATH
@@ -417,12 +419,14 @@ do_link() {
     echo "  ~/.local/bin/metagent     - CLI tool"
     echo "  ~/.metagent/              - Global prompts"
     echo "  ~/.claude/commands/       - Slash commands (/bootstrap, /spec, /plan)"
+    echo "  ~/.codex/commands/        - Slash commands (/bootstrap, /spec, /plan)"
 }
 
 do_unlink() {
     local bin_dir="$HOME/.local/bin"
     local metagent_dir="$HOME/.metagent"
-    local commands_dir="$HOME/.claude/commands"
+    local claude_commands="$HOME/.claude/commands"
+    local codex_commands="$HOME/.codex/commands"
 
     # Remove metagent from PATH
     if [ -L "$bin_dir/metagent" ]; then
@@ -430,13 +434,15 @@ do_unlink() {
         echo -e "${GREEN}✓${NC} Removed $bin_dir/metagent"
     fi
 
-    # Remove slash commands
-    for cmd in bootstrap.md spec.md plan.md; do
-        if [ -L "$commands_dir/$cmd" ]; then
-            rm "$commands_dir/$cmd"
-            echo -e "${GREEN}✓${NC} Removed $commands_dir/$cmd"
-        fi
+    # Remove slash commands from both Claude and Codex
+    for commands_dir in "$claude_commands" "$codex_commands"; do
+        for cmd in bootstrap.md spec.md plan.md; do
+            if [ -L "$commands_dir/$cmd" ]; then
+                rm "$commands_dir/$cmd"
+            fi
+        done
     done
+    echo -e "${GREEN}✓${NC} Removed slash commands"
 
     # Remove ~/.metagent/
     if [ -d "$metagent_dir" ]; then
