@@ -33,13 +33,16 @@ If specs missing, direct user to run spec phase first.
 
 Study these files in order:
 ```
-0a. @.agents/code/AGENTS.md - Build/test commands
-0b. @.agents/code/TECHNICAL_STANDARDS.md - Coding patterns
-0c. @.agents/code/tasks/{taskname}/spec/overview.md - Goals and architecture
-0d. @.agents/code/tasks/{taskname}/spec/types.md - Type definitions
-0e. @.agents/code/tasks/{taskname}/spec/*.md - All other spec files
-0f. @.agents/code/tasks/{taskname}/plan.md - Current plan (if exists)
+0a. @.agents/code/SPEC.md - **Project specification** (what this project is and does)
+0b. @.agents/code/AGENTS.md - Build/test commands
+0c. @.agents/code/TECHNICAL_STANDARDS.md - Coding patterns
+0d. @.agents/code/tasks/{taskname}/spec/overview.md - Goals and architecture
+0e. @.agents/code/tasks/{taskname}/spec/types.md - Type definitions
+0f. @.agents/code/tasks/{taskname}/spec/*.md - All other spec files
+0g. @.agents/code/tasks/{taskname}/plan.md - Current plan (if exists)
 ```
+
+Understanding the project specification (SPEC.md) is **critical** - it provides the high-level context for how this task fits into the overall project architecture, what abstractions exist, and what patterns to follow.
 
 ---
 

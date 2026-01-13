@@ -4,9 +4,11 @@
 
 This prompt configures the Ralph workflow for your repository by:
 1. **Detecting** your language, framework, and build tools
-2. **Updating** `AGENTS.md` with your actual commands
-3. **Updating** `TECHNICAL_STANDARDS.md` with patterns from your code
-4. **Validating** that commands work
+2. **Analyzing** the codebase to understand what the project does
+3. **Generating** `SPEC.md` with the project's high-level specification
+4. **Updating** `AGENTS.md` with your actual commands
+5. **Updating** `TECHNICAL_STANDARDS.md` with patterns from your code
+6. **Validating** that commands work
 
 **Prerequisites:** The `.agents/code/` template files must already exist.
 If they don't, copy them from the Ralph workflow package first.
@@ -24,6 +26,7 @@ ls -la .agents/code/
 Required files:
 - `.agents/code/AGENTS.md`
 - `.agents/code/TECHNICAL_STANDARDS.md`
+- `.agents/code/SPEC.md`
 - `.agents/code/SPEC_PROMPT.md`
 - `.agents/code/PLANNING_PROMPT.md`
 - `.agents/code/scripts/spec.sh`
@@ -57,6 +60,8 @@ Search for these files and read them:
 | `composer.json` | PHP | dependencies |
 | `Makefile` | Various | targets |
 | `CMakeLists.txt` | C/C++ | build config |
+| `Package.swift` | Swift | package config |
+| `*.xcodeproj` | Swift/ObjC | Xcode project |
 
 ### 2.2 Find Config Files
 
@@ -91,7 +96,7 @@ Extract:
 ### 2.4 Analyze Directory Structure
 
 ```bash
-find . -type d -maxdepth 2 | grep -v node_modules | grep -v .git | grep -v __pycache__
+find . -type d -maxdepth 3 | grep -v node_modules | grep -v .git | grep -v __pycache__ | grep -v .build
 ```
 
 Note:
@@ -102,7 +107,173 @@ Note:
 
 ---
 
-## PHASE 3: DETERMINE COMMANDS
+## PHASE 3: ANALYZE PROJECT PURPOSE
+
+**CRITICAL PHASE:** Use subagents (up to 100 parallel) to understand what this project actually does.
+
+### 3.1 Read Key Documentation
+
+Spawn subagents to find and read:
+- `README.md`, `README.*`
+- `docs/`, `documentation/`
+- `ARCHITECTURE.md`, `DESIGN.md`
+- Package descriptions (package.json description, Cargo.toml description, etc.)
+- Any `.md` files in root directory
+
+### 3.2 Analyze Entry Points
+
+Spawn subagents to read and understand:
+- Main entry files (main.rs, main.go, index.ts, app.py, etc.)
+- App initialization code
+- Configuration loading
+- Service/component registration
+
+### 3.3 Map Core Components
+
+Spawn subagents to identify:
+```
+For each major directory:
+├── What is its purpose?
+├── What are the key files?
+├── What does it export/expose?
+├── What does it depend on?
+└── How does it fit in the overall architecture?
+```
+
+### 3.4 Identify Key Abstractions
+
+Spawn subagents to find:
+- Core types/interfaces/protocols
+- Main services/controllers/handlers
+- Data models
+- API endpoints (if applicable)
+- CLI commands (if applicable)
+- UI components (if applicable)
+
+### 3.5 Trace Data Flow
+
+Spawn subagents to understand:
+- Where does data come from? (user input, API, database, files)
+- How is it processed?
+- Where does it go? (UI, storage, external services)
+- What transformations happen?
+
+### 3.6 Identify External Dependencies
+
+Spawn subagents to catalog:
+- External APIs called
+- Databases used
+- File systems accessed
+- Third-party services integrated
+- System resources used
+
+---
+
+## PHASE 4: GENERATE SPEC.MD
+
+Based on Phase 3 analysis, write `.agents/code/SPEC.md`.
+
+### 4.1 Write Overview Section
+
+```markdown
+## Overview
+
+{One paragraph describing what this project is and does}
+
+## Purpose
+
+{Why this project exists - the problem it solves}
+
+## Core Functionality
+
+{Bullet list of main features/capabilities}
+```
+
+### 4.2 Write Architecture Section
+
+```markdown
+## Architecture
+
+### High-Level Structure
+
+```
+{ASCII diagram showing main components and their relationships}
+```
+
+### Key Components
+
+| Component | Purpose | Location |
+|-----------|---------|----------|
+| {name} | {what it does} | {path} |
+```
+
+### 4.3 Write Technology Stack
+
+```markdown
+## Technology Stack
+
+| Layer | Technology | Notes |
+|-------|------------|-------|
+| Language | {lang} | {version} |
+| Framework | {framework} | {purpose} |
+| Database | {db} | {if applicable} |
+| ...
+```
+
+### 4.4 Write Key Abstractions
+
+```markdown
+## Key Abstractions
+
+### {AbstractionName}
+
+**What:** {Description of what it represents}
+**Why:** {Why this abstraction exists}
+**Where:** {File/module location}
+```
+
+### 4.5 Write Boundaries
+
+```markdown
+## Boundaries & Constraints
+
+### In Scope
+- {What the project does}
+
+### Out of Scope
+- {What it explicitly doesn't do}
+
+### Technical Constraints
+- {Platform requirements, performance needs, etc.}
+```
+
+### 4.6 Write Entry Points
+
+```markdown
+## Entry Points
+
+| Entry Point | Purpose | File |
+|-------------|---------|------|
+| {name} | {what triggers it} | {file} |
+```
+
+### 4.7 Complete Remaining Sections
+
+Fill in the rest of SPEC.md template:
+- Configuration
+- State Management
+- Error Handling Strategy
+- Testing Strategy
+- Security Considerations
+- Performance Considerations
+- Known Limitations
+- Future Considerations
+
+Use `str_replace` to update each section of SPEC.md.
+
+---
+
+## PHASE 5: DETERMINE COMMANDS
 
 Based on detected stack, determine the actual commands.
 
@@ -161,19 +332,13 @@ grep -l "pytest" pyproject.toml 2>/dev/null
 | Test file | `pytest {file}` | `python -m unittest {file}` |
 | Verbose | `pytest -v` | `python -m unittest -v` |
 
-Linting:
-| Tool | Command |
-|------|---------|
-| ruff | `ruff check .` |
-| flake8 | `flake8` |
-| pylint | `pylint src/` |
+### Swift
 
-Type checking:
-| Tool | Command |
+| Need | Command |
 |------|---------|
-| mypy | `mypy .` |
-| pyright | `pyright` |
-| pyrefly | `pyrefly check` |
+| Build | `swift build` or `xcodebuild -scheme {Scheme} build` |
+| Test all | `swift test` or `xcodebuild test` |
+| Clean | `swift package clean` or `xcodebuild clean` |
 
 ### Ruby
 
@@ -197,11 +362,11 @@ Type checking:
 
 ---
 
-## PHASE 4: EXTRACT CODE PATTERNS
+## PHASE 6: EXTRACT CODE PATTERNS
 
 Use subagents to analyze 5-10 source files.
 
-### 4.1 Naming Conventions
+### 6.1 Naming Conventions
 
 Look at actual code for:
 - File names (snake_case, kebab-case, PascalCase)
@@ -210,7 +375,7 @@ Look at actual code for:
 - Variable names
 - Constant names (SCREAMING_SNAKE)
 
-### 4.2 File Organization
+### 6.2 File Organization
 
 Note from existing files:
 - Import ordering
@@ -218,7 +383,7 @@ Note from existing files:
 - Where types are defined
 - Where constants live
 
-### 4.3 Error Handling
+### 6.3 Error Handling
 
 Find patterns:
 ```bash
@@ -228,7 +393,7 @@ grep -rn "throw\|raise\|Error\|Exception\|Result<\|unwrap\|expect" src/ | head -
 
 Note the project's error handling style.
 
-### 4.4 Test Patterns
+### 6.4 Test Patterns
 
 Look at existing tests for:
 - Test file naming
@@ -239,7 +404,7 @@ Look at existing tests for:
 
 ---
 
-## PHASE 5: UPDATE AGENTS.MD
+## PHASE 7: UPDATE AGENTS.MD
 
 Read current `.agents/code/AGENTS.md` and update placeholders with detected values.
 
@@ -296,7 +461,7 @@ Use `str_replace` to update each section.
 
 ---
 
-## PHASE 6: UPDATE TECHNICAL_STANDARDS.MD
+## PHASE 8: UPDATE TECHNICAL_STANDARDS.MD
 
 Read current `.agents/code/TECHNICAL_STANDARDS.md` and update with extracted patterns.
 
@@ -327,7 +492,7 @@ Use `str_replace` to update each section.
 
 ---
 
-## PHASE 7: VALIDATE COMMANDS
+## PHASE 9: VALIDATE COMMANDS
 
 Test that detected commands work:
 
@@ -349,7 +514,7 @@ If a command fails:
 1. **Missing tool:** Note in AGENTS.md
    ```markdown
    ## Setup Required
-   
+
    ⚠️ Install required tools:
    - `{tool}`: {install_command}
    ```
@@ -360,7 +525,7 @@ If a command fails:
 
 ---
 
-## PHASE 8: VERIFY SCRIPT
+## PHASE 10: VERIFY SCRIPTS
 
 Test that spec.sh works:
 
@@ -371,29 +536,7 @@ Test that spec.sh works:
 
 Ensure it's executable:
 ```bash
-chmod +x scripts/spec.sh
-```
-
----
-
-## PHASE 9: VERIFY SCRIPT
-
-Review the .agents/code/PLANNING_PROMPT.md
-
----
-
-## PHASE 10: VERIFY SCRIPT
-
-Test that spec.sh works:
-
-```bash
-# Test the script (don't actually create)
-.agents/code/scripts/spec.sh --help 2>&1 || .agents/code/scripts/spec.sh 2>&1 | head -10
-```
-
-Ensure it's executable:
-```bash
-chmod +x scripts/spec.sh
+chmod +x .agents/code/scripts/spec.sh
 ```
 
 ---
@@ -406,6 +549,9 @@ Output summary:
 ╔══════════════════════════════════════════════════════════════╗
 ║              RALPH WORKFLOW CONFIGURED                       ║
 ╠══════════════════════════════════════════════════════════════╣
+║ Project: {PROJECT_NAME}                                      ║
+║ {ONE_LINE_DESCRIPTION}                                       ║
+╠══════════════════════════════════════════════════════════════╣
 ║ Detected Stack:                                              ║
 ║   Language:     {LANGUAGE} {VERSION}                         ║
 ║   Framework:    {FRAMEWORK}                                  ║
@@ -414,7 +560,8 @@ Output summary:
 ║   Lint:         {LINT_TOOL}                                  ║
 ╠══════════════════════════════════════════════════════════════╣
 ║ Updated Files:                                               ║
-║   .agents/code/AGENTS.md           ✓                         ║
+║   .agents/code/SPEC.md               ✓                       ║
+║   .agents/code/AGENTS.md             ✓                       ║
 ║   .agents/code/TECHNICAL_STANDARDS.md  ✓                     ║
 ╠══════════════════════════════════════════════════════════════╣
 ║ Commands Verified:                                           ║
@@ -426,7 +573,7 @@ Output summary:
 ║ Ready to use!                                                ║
 ║                                                              ║
 ║ Start a task:                                                ║
-║   .agents/code/scripts/spec.sh my-feature                               ║
+║   .agents/code/scripts/spec.sh my-feature                    ║
 ║   cat .agents/code/SPEC_PROMPT.md | claude-code              ║
 ╚══════════════════════════════════════════════════════════════╝
 ```
@@ -443,17 +590,20 @@ If issues found:
 
 1. **Templates must exist** - Don't create from scratch
 2. **Detect, don't assume** - Use actual file contents
-3. **Validate commands** - Test before claiming success
-4. **Preserve structure** - Update sections, don't rewrite files
-5. **Report gaps** - Note what needs manual attention
+3. **Understand the project** - SPEC.md must accurately describe what this project does
+4. **Validate commands** - Test before claiming success
+5. **Preserve structure** - Update sections, don't rewrite files
+6. **Report gaps** - Note what needs manual attention
 
 ## PRIORITY
 
 9. Verify templates exist first
 99. Detect actual stack from files
-999. Extract patterns from real code
-9999. Update both AGENTS.md and TECHNICAL_STANDARDS.md
-99999. Validate commands work
+999. **UNDERSTAND THE PROJECT - Generate accurate SPEC.md**
+9999. Extract patterns from real code
+99999. Update AGENTS.md and TECHNICAL_STANDARDS.md
+999999. Validate commands work
 
-999999. **USE STR_REPLACE TO UPDATE - DON'T REWRITE FILES**
-9999999. **REPORT WHAT NEEDS MANUAL SETUP**
+9999999. **SPEC.md IS CRITICAL - It's the source of truth for what this project is**
+99999999. **USE STR_REPLACE TO UPDATE - DON'T REWRITE FILES**
+999999999. **REPORT WHAT NEEDS MANUAL SETUP**

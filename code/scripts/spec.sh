@@ -137,10 +137,11 @@ cat > "${TASK_DIR}/PROMPT.md" << 'PROMPT_EOF'
 
 > Load these files in order for consistent knowledge
 
-0a. Study @.agents/code/AGENTS.md - Build commands and learnings
-0b. Study @.agents/code/TECHNICAL_STANDARDS.md - Coding patterns
-0c. Study @.agents/code/tasks/{{TASKNAME}}/spec/*.md - All specification files
-0d. Study @.agents/code/tasks/{{TASKNAME}}/plan.md - Current task list
+0a. Study @.agents/code/SPEC.md - **Project specification** (what this project is and does)
+0b. Study @.agents/code/AGENTS.md - Build commands and learnings
+0c. Study @.agents/code/TECHNICAL_STANDARDS.md - Coding patterns
+0d. Study @.agents/code/tasks/{{TASKNAME}}/spec/*.md - All specification files
+0e. Study @.agents/code/tasks/{{TASKNAME}}/plan.md - Current task list
 
 ## Primary Directive
 

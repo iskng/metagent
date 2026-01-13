@@ -33,9 +33,12 @@ Once you have the task name:
 
 ## CONTEXT LOADING
 
-Study these files first:
+Study these files first (in order):
+- @.agents/code/SPEC.md - **Project specification** (what this project is and does)
 - @.agents/code/AGENTS.md - Project build commands and structure
 - @.agents/code/TECHNICAL_STANDARDS.md - Coding patterns to follow
+
+Understanding the project specification is **critical** - it tells you what this project is, its architecture, key abstractions, and boundaries. Use this context when interviewing the user and exploring the codebase.
 
 ---
 
