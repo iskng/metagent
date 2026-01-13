@@ -2,10 +2,11 @@
 # sync.sh - Sync generic prompts to a target repository (or all tracked repos)
 #
 # Usage:
+#   ./sync.sh                         # Sync to current directory
 #   ./sync.sh /path/to/target/repo    # Sync to specific repo
 #   ./sync.sh --all                   # Sync to all repos that have .metagent-source
 #   ./sync.sh --list                  # List repos that would be synced
-#   ./sync.sh --dry-run /path/to/repo # Show what would be synced without doing it
+#   ./sync.sh --dry-run [/path/to/repo] # Show what would be synced without doing it
 #
 # This will update ONLY the generic prompts (not project-specific files):
 # - BOOTSTRAP_PROMPT.md
@@ -142,10 +143,11 @@ find_tracked_repos() {
 
 show_usage() {
     echo "Usage:"
+    echo "  ./sync.sh                   Sync to current directory"
     echo "  ./sync.sh /path/to/repo     Sync to specific repository"
     echo "  ./sync.sh --all             Sync to all tracked repositories"
     echo "  ./sync.sh --list            List tracked repositories"
-    echo "  ./sync.sh --dry-run /path   Show what would change"
+    echo "  ./sync.sh --dry-run [path]  Show what would change (defaults to current dir)"
     echo ""
     echo "Generic files synced:"
     for prompt in "${GENERIC_PROMPTS[@]}"; do
@@ -200,24 +202,24 @@ case "${1:-}" in
     --dry-run)
         DRY_RUN=true
         if [ -z "$2" ]; then
-            echo -e "${RED}Error: --dry-run requires a target path${NC}"
-            show_usage
-            exit 1
+            TARGET_REPO="$(pwd)"
+        else
+            TARGET_REPO="$(cd "$2" 2>/dev/null && pwd)" || {
+                echo -e "${RED}Error: Target directory does not exist: $2${NC}"
+                exit 1
+            }
         fi
-        TARGET_REPO="$(cd "$2" 2>/dev/null && pwd)" || {
-            echo -e "${RED}Error: Target directory does not exist: $2${NC}"
-            exit 1
-        }
         echo -e "${CYAN}Dry run - showing what would change:${NC}"
         echo ""
         sync_repo "$TARGET_REPO"
         exit 0
         ;;
     "")
-        echo -e "${RED}Error: Target repository path required${NC}"
-        echo ""
-        show_usage
-        exit 1
+        # Default to current directory
+        TARGET_REPO="$(pwd)"
+        sync_repo "$TARGET_REPO"
+        echo -e "${GREEN}Sync complete!${NC}"
+        exit 0
         ;;
     *)
         TARGET_REPO="$(cd "$1" 2>/dev/null && pwd)" || {

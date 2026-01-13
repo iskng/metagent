@@ -1,7 +1,9 @@
 #!/bin/bash
 # install.sh - Install Ralph workflow into a target repository
 #
-# Usage: ./install.sh /path/to/target/repo
+# Usage: ./install.sh [/path/to/target/repo]
+#
+# If no path given, installs to current directory.
 #
 # This will:
 # 1. Create .agents/code/ directory structure
@@ -21,21 +23,15 @@ NC='\033[0m' # No Color
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# Validate arguments
+# Use current directory if no argument given
 if [ -z "$1" ]; then
-    echo -e "${RED}Error: Target repository path required${NC}"
-    echo "Usage: ./install.sh /path/to/target/repo"
-    echo ""
-    echo "Examples:"
-    echo "  ./install.sh ~/projects/my-app"
-    echo "  ./install.sh ../other-repo"
-    exit 1
+    TARGET_REPO="$(pwd)"
+else
+    TARGET_REPO="$(cd "$1" 2>/dev/null && pwd)" || {
+        echo -e "${RED}Error: Target directory does not exist: $1${NC}"
+        exit 1
+    }
 fi
-
-TARGET_REPO="$(cd "$1" 2>/dev/null && pwd)" || {
-    echo -e "${RED}Error: Target directory does not exist: $1${NC}"
-    exit 1
-}
 
 # Check if target is a git repo
 if [ ! -d "$TARGET_REPO/.git" ]; then
