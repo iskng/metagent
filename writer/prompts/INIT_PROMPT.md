@@ -76,6 +76,8 @@ This creates the task directory at `.agents/writer/tasks/{projectname}/`.
 
 ## PHASE 4: GENERATE PROJECT FILES
 
+**First, read `.agents/writer/AGENTS.md`** - This contains project-wide writing conventions and learnings.
+
 Create the complete project structure in `.agents/writer/tasks/{projectname}/`:
 
 ```

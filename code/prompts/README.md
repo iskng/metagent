@@ -46,20 +46,30 @@ A structured, 3-phase autonomous coding workflow based on the Ralph Wiggum techn
 
 ## Quick Start
 
-### 1. Bootstrap (New Repo)
+### 1. Install metagent (first time only)
 
 ```bash
-# Copy bootstrap prompt and run it
-cat BOOTSTRAP_PROMPT.md | claude --dangerously-skip-permissions
-
-# It will:
-# - Detect your language/framework
-# - Create all prompt files
-# - Configure build/test commands
-# - Extract coding patterns
+# From metagent repo
+./metagent.sh install
 ```
 
-### 2. Start a Task
+### 2. Initialize code agent in your project
+
+```bash
+cd ~/my-project
+metagent init
+# Or: metagent --agent code init
+```
+
+### 3. Bootstrap (configure for your project)
+
+```bash
+# Run /bootstrap slash command in Claude, or:
+metagent start
+# It will detect your language/framework and configure AGENTS.md
+```
+
+### 4. Start a Task
 
 ```bash
 # Interactive mode (recommended)
@@ -67,54 +77,57 @@ metagent start
 # Conducts interview → creates task → specs → planning
 
 # Or manually:
-metagent task my-feature                # Create task
-cat .agents/code/SPEC_PROMPT.md | claude --dangerously-skip-permissions  # Write specs
-metagent finish spec                    # Advance to planning
-cat .agents/code/PLANNING_PROMPT.md | claude --dangerously-skip-permissions  # Create plan
-metagent finish planning                # Advance to ready
+metagent task my-feature       # Create task
+# Use /spec slash command      # Write specs
+metagent finish spec           # Advance to planning
+# Use /planner slash command   # Create plan
+metagent finish planning       # Advance to ready
 
 # Build Loop
 metagent run my-feature
 # Monitor output, Ctrl+C to intervene
 ```
 
-### 3. Recovery
+### 5. Recovery
 
 ```bash
-# When things go wrong
-cat .agents/code/recovery_prompt.md | claude --dangerously-skip-permissions
-
-# To refresh stale plan
-cat .agents/code/refresh_prompt.md | claude --dangerously-skip-permissions
+# When things go wrong, use /debug slash command
 ```
 
 ---
 
 ## Directory Structure
 
+### Global (after `metagent install`)
+
+```
+~/.metagent/code/
+├── BOOTSTRAP_PROMPT.md      # Initial repo setup (/bootstrap)
+├── SPEC_PROMPT.md           # Phase 1: Specifications (/spec)
+├── PLANNING_PROMPT.md       # Phase 2: Planning (/planner)
+├── DEBUG_PROMPT.md          # Bug diagnosis (/debug)
+├── RECOVERY_PROMPT.md       # When things break
+└── REFRESH_PROMPT.md        # Regenerate stale plans
+```
+
+### Per-project (after `metagent init`)
+
 ```
 project/
-├── .agents/
-│   └── code/
-│       ├── BOOTSTRAP_PROMPT.md      # Initial repo setup
-│       ├── SPEC_PROMPT.md           # Phase 1: Specifications
-│       ├── PLANNING_PROMPT.md       # Phase 2: Planning
-│       ├── build_prompt_template.md # Template for build prompts
-│       ├── recovery_prompt.md       # When things break
-│       ├── refresh_prompt.md        # Regenerate stale plans
-│       ├── AGENTS.md                # Build commands & learnings
-│       ├── TECHNICAL_STANDARDS.md   # Coding patterns
-│       ├── README.md                # This file
-│       └── tasks/                   # All task directories
-│           └── {taskname}/          # Per-task directory
-│               ├── spec/            # Specifications
-│               │   ├── overview.md
-│               │   ├── types.md
-│               │   ├── {module}.md
-│               │   └── errors.md
-│               ├── plan.md          # Prioritized task list
-│               └── PROMPT.md        # Build loop prompt
-└── src/                             # Your source code
+├── .agents/code/
+│   ├── AGENTS.md                # Build commands & learnings
+│   ├── SPEC.md                  # Project specification
+│   ├── TECHNICAL_STANDARDS.md   # Coding patterns
+│   ├── queue.jsonl              # Task queue
+│   └── tasks/                   # All task directories
+│       └── {taskname}/          # Per-task directory
+│           ├── spec/            # Specifications
+│           │   ├── overview.md
+│           │   ├── types.md
+│           │   └── errors.md
+│           ├── plan.md          # Prioritized task list
+│           └── PROMPT.md        # Build loop prompt
+└── src/                         # Your source code
 ```
 
 ---
@@ -131,12 +144,12 @@ project/
 
 ### Support Prompts
 
-| Prompt | Purpose |
-|--------|---------|
-| `BOOTSTRAP_PROMPT.md` | Initial setup for new repositories |
-| `recovery_prompt.md` | Diagnose and fix broken states |
-| `refresh_prompt.md` | Regenerate stale or cluttered plans |
-| `build_prompt_template.md` | Template for per-task build prompts |
+| Prompt | Slash Command | Purpose |
+|--------|---------------|---------|
+| `BOOTSTRAP_PROMPT.md` | `/bootstrap` | Initial setup for new repositories |
+| `DEBUG_PROMPT.md` | `/debug` | Diagnose and fix bugs |
+| `RECOVERY_PROMPT.md` | - | Recover from broken states |
+| `REFRESH_PROMPT.md` | - | Regenerate stale or cluttered plans |
 
 ### Configuration Files
 
@@ -358,17 +371,25 @@ Why: Coordinating non-deterministic agents creates exponential complexity.
 
 ## Files Included
 
-| File | Lines | Purpose |
-|------|-------|---------|
-| BOOTSTRAP_PROMPT.md | ~400 | Auto-setup for any repo |
-| SPEC_PROMPT.md | ~350 | Specification development |
-| PLANNING_PROMPT.md | ~400 | Plan generation |
-| build_prompt_template.md | ~350 | Per-task build loop template |
-| recovery_prompt.md | ~350 | Failure recovery |
-| refresh_prompt.md | ~300 | Plan regeneration |
-| AGENTS.md | ~200 | Build commands template |
-| TECHNICAL_STANDARDS.md | ~350 | Coding standards template |
-| README.md | ~400 | This documentation |
+### Prompts (in ~/.metagent/code/)
+
+| File | Slash Command | Purpose |
+|------|---------------|---------|
+| BOOTSTRAP_PROMPT.md | `/bootstrap` | Auto-setup for any repo |
+| SPEC_PROMPT.md | `/spec` | Specification development |
+| PLANNING_PROMPT.md | `/planner` | Plan generation |
+| DEBUG_PROMPT.md | `/debug` | Bug diagnosis |
+| RECOVERY_PROMPT.md | - | Failure recovery |
+| REFRESH_PROMPT.md | - | Plan regeneration |
+| README.md | - | This documentation |
+
+### Templates (copied to project)
+
+| File | Purpose |
+|------|---------|
+| AGENTS.md | Build commands & learnings |
+| SPEC.md | Project specification |
+| TECHNICAL_STANDARDS.md | Coding standards |
 
 ---
 

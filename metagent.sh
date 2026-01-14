@@ -2,16 +2,16 @@
 # metagent.sh - Agent workflow manager
 #
 # Usage:
-#   metagent link                        Setup metagent globally (first time)
-#   metagent install [path]              Install agent to repo
+#   metagent install                     Setup metagent globally (first time)
+#   metagent uninstall                   Remove metagent globally
+#   metagent init [path]                 Initialize agent in repo
 #   metagent start                       Start new task (interview → spec → planning)
 #   metagent task <taskname>             Create task directory and add to queue
-#   metagent finish <stage>              Signal stage completion (spec/planning)
-#   metagent run <taskname>              Run build loop for a task
+#   metagent finish <stage>              Signal stage completion
+#   metagent run <taskname>              Run loop for a task
 #   metagent queue [taskname]            Add task to queue / show queue
 #   metagent dequeue <taskname>          Remove task from queue
 #   metagent run-queue                   Process all queued tasks
-#   metagent unlink                      Remove metagent
 #
 # Common options:
 #   -h, --help          Show help
@@ -52,25 +52,25 @@ show_help() {
     echo "  writer               Writing projects"
     echo ""
     echo "Commands:"
-    echo "  link                        Setup globally (first time)"
-    echo "  install [path]              Install agent to repo"
-    echo "  start                       Start new task (interview → spec → planning)"
+    echo "  install                     Setup globally (first time)"
+    echo "  uninstall                   Remove metagent globally"
+    echo "  init [path]                 Initialize agent in repo"
+    echo "  start                       Start new task interactively"
     echo "  task <taskname>             Create task directory and add to queue"
     echo "  finish <stage>              Signal stage completion"
     echo "  run <taskname>              Run loop for a task"
     echo "  queue [taskname]            Show queue / add task to queue"
     echo "  dequeue <taskname>          Remove task from queue"
     echo "  run-queue                   Process all queued tasks"
-    echo "  unlink                      Remove metagent"
     echo ""
     echo "Options:"
     echo "  --agent TYPE        Select agent type (code, writer)"
     echo "  -h, --help          Show help"
     echo ""
     echo "Examples:"
-    echo "  metagent link                        # First time setup"
-    echo "  metagent install                     # Install code agent to current dir"
-    echo "  metagent --agent writer install      # Install writer agent"
+    echo "  metagent install                     # First time setup"
+    echo "  metagent init                        # Initialize code agent in current dir"
+    echo "  metagent --agent writer init         # Initialize writer agent"
     echo "  metagent start                       # Start new task interactively"
     echo "  metagent task my-feature             # Create task (used by model)"
     echo "  metagent finish spec                 # Signal spec phase complete"
@@ -89,16 +89,16 @@ load_agent() {
 }
 
 # ============================================================================
-# Install Command
+# Init Command (per-repo setup)
 # ============================================================================
 
-do_install() {
+do_init() {
     local target_repo="$1"
     local metagent_dir="$HOME/.metagent"
 
-    # Check metagent is linked
+    # Check metagent is installed
     if [ ! -d "$metagent_dir/$AGENT" ]; then
-        echo -e "${RED}Error: metagent $AGENT agent not linked. Run 'metagent link' first.${NC}"
+        echo -e "${RED}Error: metagent $AGENT agent not installed. Run 'metagent install' first.${NC}"
         exit 1
     fi
 
@@ -165,10 +165,10 @@ do_install() {
 }
 
 # ============================================================================
-# Link/Unlink Commands
+# Install/Uninstall Commands (global setup)
 # ============================================================================
 
-do_link() {
+do_install() {
     local bin_dir="$HOME/.local/bin"
     local metagent_dir="$HOME/.metagent"
     local claude_commands="$HOME/.claude/commands"
@@ -519,9 +519,9 @@ do_start() {
     local initial_prompt
     initial_prompt=$(agent_prompt_for_stage "$initial_stage" "")
 
-    # Verify metagent is linked
+    # Verify metagent is installed
     if [ ! -f "$initial_prompt" ]; then
-        echo -e "${RED}Error: metagent not linked. Run 'metagent link' first.${NC}"
+        echo -e "${RED}Error: metagent not installed. Run 'metagent install' first.${NC}"
         exit 1
     fi
 
@@ -835,12 +835,35 @@ do_run() {
     fi
 
     local task_dir=".agents/$AGENT/tasks/${taskname}"
+    local queue_file
+    queue_file=$(get_queue_file)
+
+    # Get current stage from queue
+    local current_stage=""
+    if [ -f "$queue_file" ]; then
+        local task_entry
+        task_entry=$(grep "\"task\":\"$taskname\"" "$queue_file" || true)
+        if [ -n "$task_entry" ]; then
+            current_stage=$(json_field "$task_entry" "stage")
+        fi
+    fi
+
+    if [ -z "$current_stage" ]; then
+        echo -e "${RED}Error: Task '$taskname' not found in queue${NC}"
+        echo "Run 'metagent queue $taskname' to add it first."
+        exit 1
+    fi
+
+    if [ "$current_stage" = "completed" ]; then
+        echo -e "${GREEN}Task '$taskname' is already completed${NC}"
+        exit 0
+    fi
+
     local prompt_file
-    prompt_file=$(agent_prompt_for_stage "ready" "$taskname")
+    prompt_file=$(agent_prompt_for_stage "$current_stage" "$taskname")
 
     if [ ! -f "$prompt_file" ]; then
         echo -e "${RED}Error: Prompt file not found: ${prompt_file}${NC}"
-        echo "Run 'metagent task ${taskname}' first to create the task."
         exit 1
     fi
 
@@ -848,13 +871,14 @@ do_run() {
     local marker_file="/tmp/.metagent-done-$$"
     export CLAUDE_DONE_MARKER="$marker_file"
     export METAGENT_AGENT="$AGENT"
+    export METAGENT_TASK="$taskname"
 
     cleanup() {
         rm -f "$marker_file"
     }
     trap cleanup EXIT
 
-    echo -e "${BLUE}Starting loop for: ${taskname}${NC}"
+    echo -e "${BLUE}Starting loop for: ${taskname} (stage: ${current_stage})${NC}"
     echo -e "${YELLOW}Press Ctrl+C to stop${NC}"
     echo ""
 
@@ -863,8 +887,18 @@ do_run() {
         loop_count=$((loop_count + 1))
         rm -f "$marker_file"
 
+        # Re-read current stage (may have changed via --next flag)
+        task_entry=$(grep "\"task\":\"$taskname\"" "$queue_file" || true)
+        current_stage=$(json_field "$task_entry" "stage")
+        prompt_file=$(agent_prompt_for_stage "$current_stage" "$taskname")
+
+        if [ "$current_stage" = "completed" ]; then
+            echo -e "${GREEN}Task '$taskname' completed!${NC}"
+            break
+        fi
+
         echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-        echo -e "${BLUE}Loop #${loop_count} - $(date '+%Y-%m-%d %H:%M:%S')${NC}"
+        echo -e "${BLUE}Loop #${loop_count} - ${current_stage} - $(date '+%Y-%m-%d %H:%M:%S')${NC}"
         echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
         echo ""
 
@@ -873,7 +907,7 @@ do_run() {
 
         if [ -f "$marker_file" ]; then
             echo ""
-            echo -e "${GREEN}Task completed, restarting for next task...${NC}"
+            echo -e "${GREEN}Stage completed, continuing...${NC}"
             echo ""
             sleep 2
             continue
@@ -887,7 +921,7 @@ do_run() {
     done
 }
 
-do_unlink() {
+do_uninstall() {
     local bin_dir="$HOME/.local/bin"
     local metagent_dir="$HOME/.metagent"
     local claude_commands="$HOME/.claude/commands"
@@ -921,7 +955,7 @@ do_unlink() {
     fi
 
     echo ""
-    echo -e "${GREEN}✓ metagent unlinked${NC}"
+    echo -e "${GREEN}✓ metagent uninstalled${NC}"
 }
 
 # ============================================================================
@@ -985,8 +1019,14 @@ shift
 
 # Execute command (pass all remaining args to the handler)
 case "$COMMAND" in
-    install|i)
-        do_install "$@"
+    install)
+        do_install
+        ;;
+    uninstall)
+        do_uninstall
+        ;;
+    init|i)
+        do_init "$@"
         ;;
     start)
         do_start
@@ -1008,12 +1048,6 @@ case "$COMMAND" in
         ;;
     run-queue|rq)
         do_run_queue
-        ;;
-    link)
-        do_link
-        ;;
-    unlink)
-        do_unlink
         ;;
     *)
         echo -e "${RED}Error: Unknown command '$COMMAND'${NC}"

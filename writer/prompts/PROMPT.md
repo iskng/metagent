@@ -25,7 +25,7 @@ Load and study these files before starting:
 - @.agents/writer/tasks/{task}/style/terminology.md - Glossary and terminology
 - @.agents/writer/tasks/{task}/research/notes.md - Research findings
 - @.agents/writer/tasks/{task}/editorial_plan.md - Current task list
-- @.agents/writer/WRITER.md - Writing tools and learnings
+- @.agents/writer/AGENTS.md - Writing tools and learnings
 
 ---
 
@@ -54,7 +54,7 @@ Your task each loop:
 - Writing: 1 subagent only (one page at a time)
 - Editorial checks: 1 subagent only
 - editorial_plan.md updates: 1 subagent
-- WRITER.md updates: 1 subagent
+- AGENTS.md updates: 1 subagent
 
 ---
 
@@ -174,8 +174,8 @@ When problems are found:
 
 ## Self-Improvement
 
-1. **Writing learnings → WRITER.md**
-   When you discover effective patterns, update WRITER.md using a subagent.
+1. **Writing learnings → AGENTS.md**
+   When you discover effective patterns, update AGENTS.md using a subagent.
 
 2. **Style clarifications → style guide**
    If you make a style decision not covered by the guide, document it.
@@ -230,7 +230,7 @@ metagent finish write
 7. **STOP**
 
 9. Keep editorial_plan.md updated with findings
-99. Keep WRITER.md updated with learnings
+99. Keep AGENTS.md updated with learnings
 999. Check existing content thoroughly - don't contradict yourself
 9999. Maintain consistent voice throughout
 99999. Stay within outlined scope - no tangents

@@ -1,6 +1,7 @@
-# Writer Instructions
+# Agent Instructions
 
-> Writing tools, structure, and learnings. Keep brief.
+> Writing tools, structure, and learnings for this project.
+> **Keep brief. NO status updates.**
 
 ## Project Structure
 

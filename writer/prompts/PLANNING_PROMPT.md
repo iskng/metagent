@@ -25,6 +25,7 @@ Run this prompt BEFORE writing each section. It will:
 ## CONTEXT LOADING
 
 Study these files first:
+- @.agents/writer/AGENTS.md - Writing tools and learnings
 - @.agents/writer/tasks/{task}/outline/overview.md - Project goals and audience
 - @.agents/writer/tasks/{task}/outline/structure.md - Section outline (source of truth)
 - @.agents/writer/tasks/{task}/style/voice.md - Voice and tone guidelines
@@ -163,12 +164,21 @@ Before stopping, verify:
 
 ---
 
+## SELF-IMPROVEMENT
+
+When you discover useful patterns during planning:
+- **Research techniques → AGENTS.md** - Effective search strategies, sources
+- **Planning patterns → AGENTS.md** - Page breakdown approaches that work
+
+---
+
 ## RULES
 
 1. **Research first** - Use subagents to gather information
 2. **Plan thoroughly** - Each page should have clear purpose
 3. **Update editorial_plan.md** - This is source of truth for writing
 4. **Append to research** - Don't rewrite, just add
+5. **Update AGENTS.md** - Document effective patterns
 
 ## PRIORITY
 
