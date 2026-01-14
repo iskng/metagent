@@ -8,6 +8,16 @@ agent_stages() {
     echo "spec planning ready completed"
 }
 
+# Returns stages orchestrated by metagent start
+agent_orchestrated_stages() {
+    echo "spec planning"
+}
+
+# Returns the stage where metagent start should hand off to run/run-queue
+agent_handoff_stage() {
+    echo "ready"
+}
+
 # Returns the initial stage for new tasks
 agent_initial_stage() {
     echo "spec"
@@ -41,11 +51,12 @@ agent_prompt_for_stage() {
     local stage="$1"
     local taskname="$2"
     local metagent_dir="$HOME/.metagent/code"
+    local repo_root="${METAGENT_REPO_ROOT:-$(pwd)}"
 
     case "$stage" in
         spec)     echo "$metagent_dir/SPEC_PROMPT.md" ;;
         planning) echo "$metagent_dir/PLANNING_PROMPT.md" ;;
-        ready)    echo ".agents/code/tasks/$taskname/PROMPT.md" ;;
+        ready)    echo "$repo_root/.agents/code/tasks/$taskname/PROMPT.md" ;;
     esac
 }
 
@@ -113,7 +124,7 @@ When tests pass, commit: \`git add -A && git commit -m "description" && git push
 
 99999. **ONE TASK PER SESSION.**
 
-999999. **WHEN DONE:** run \`metagent finish\` to signal completion.
+999999. **WHEN DONE:** run \`cd "{repo}" && METAGENT_TASK="{task}" metagent --agent code finish\` to signal completion.
 EOF
 
     # Create spec README

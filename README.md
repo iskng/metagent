@@ -113,11 +113,8 @@ your-repo/.agents/writer/
 
 ```
 1. metagent --agent writer init    # Initialize in your repo
-2. /writer-init                    # Interview → project setup
-3. metagent run <task>             # Loops through:
-   - /writer-plan                  # Plan section (research + page breakdown)
-   - /writer                       # Write one page per loop
-   - (repeats until done)
+2. metagent --agent writer start   # Interview → plan/write loop (keeps going)
+3. metagent --agent writer run <task>  # Resume/continue loops as needed
 ```
 
 ### Stage Transitions

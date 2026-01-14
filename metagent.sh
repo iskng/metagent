@@ -67,6 +67,9 @@ show_help() {
     echo "  --agent TYPE        Select agent type (code, writer)"
     echo "  -h, --help          Show help"
     echo ""
+    echo "Finish options:"
+    echo "  --next STAGE        Override next stage"
+    echo ""
     echo "Examples:"
     echo "  metagent install                     # First time setup"
     echo "  metagent init                        # Initialize code agent in current dir"
@@ -88,8 +91,112 @@ load_agent() {
     source "$agent_script"
 }
 
+# Resolve repo root for queue/task paths (prefers .agents, then .git)
+get_repo_root() {
+    if [ -n "$METAGENT_REPO_ROOT" ]; then
+        echo "$METAGENT_REPO_ROOT"
+        return
+    fi
+
+    local start_dir="${1:-$(pwd)}"
+    local dir="$start_dir"
+
+    while true; do
+        if [ -d "$dir/.agents" ] || [ -d "$dir/.git" ]; then
+            METAGENT_REPO_ROOT="$dir"
+            export METAGENT_REPO_ROOT
+            echo "$dir"
+            return
+        fi
+        if [ "$dir" = "/" ]; then
+            break
+        fi
+        dir="$(dirname "$dir")"
+    done
+
+    echo -e "${RED}Error: No repo found (missing .agents/ or .git). Run 'metagent init' in a repo.${NC}" >&2
+    exit 1
+}
+
+get_agent_root() {
+    local repo_root
+    repo_root=$(get_repo_root)
+    if [ ! -d "$repo_root/.agents" ]; then
+        echo -e "${RED}Error: .agents/ not found in repo. Run 'metagent init' first.${NC}" >&2
+        exit 1
+    fi
+    echo "$repo_root/.agents/$AGENT"
+}
+
+is_valid_task_name() {
+    [[ "$1" =~ ^[a-z0-9-]+$ ]]
+}
+
+read_marker() {
+    local marker_file="$1"
+    MARKER_STAGE=""
+    MARKER_NEXT=""
+    MARKER_TASK=""
+    local key value
+    while IFS='=' read -r key value; do
+        case "$key" in
+            stage) MARKER_STAGE="$value" ;;
+            next)  MARKER_NEXT="$value" ;;
+            task)  MARKER_TASK="$value" ;;
+        esac
+    done < "$marker_file"
+}
+
+escape_sed_replacement() {
+    printf '%s' "$1" | sed -e 's/[&|]/\\&/g'
+}
+
+render_prompt() {
+    local prompt_file="$1"
+    local taskname="$2"
+    local repo_root
+    repo_root=$(get_repo_root)
+    local repo_escaped task_escaped
+    repo_escaped=$(escape_sed_replacement "$repo_root")
+    task_escaped=$(escape_sed_replacement "$taskname")
+    sed -E "s|{repo}|$repo_escaped|g; s|{task}|$task_escaped|g" "$prompt_file"
+}
+
+find_unique_task() {
+    local queue_file="$1"
+    local stage="$2"
+    local status_filter="$3"
+    local task=""
+    local count=0
+
+    if [ ! -f "$queue_file" ]; then
+        return 1
+    fi
+
+    while IFS= read -r line; do
+        if echo "$line" | grep -q "\"stage\":\"$stage\""; then
+            if [ -n "$status_filter" ]; then
+                local status
+                status=$(json_field "$line" "status")
+                if [ "$status" != "$status_filter" ]; then
+                    continue
+                fi
+            fi
+            task=$(json_field "$line" "task")
+            count=$((count + 1))
+        fi
+    done < "$queue_file"
+
+    if [ $count -eq 1 ]; then
+        echo "$task"
+        return 0
+    fi
+
+    return 1
+}
+
 # Validate and sanitize task name
-# Only allows alphanumeric, hyphens, and underscores
+# Only allows lowercase letters, numbers, and hyphens
 # Prevents path traversal and regex injection
 sanitize_taskname() {
     local name="$1"
@@ -98,10 +205,10 @@ sanitize_taskname() {
         echo ""
         return 0
     fi
-    # Check for invalid characters (only allow alphanumeric, hyphens, underscores)
-    if [[ ! "$name" =~ ^[a-zA-Z0-9_-]+$ ]]; then
+    # Check for invalid characters (only allow lowercase letters, numbers, hyphens)
+    if ! is_valid_task_name "$name"; then
         echo -e "${RED}Error: Invalid task name '$name'${NC}" >&2
-        echo -e "Task names can only contain letters, numbers, hyphens, and underscores." >&2
+        echo -e "Task names can only contain lowercase letters, numbers, and hyphens." >&2
         return 1
     fi
     # Check for path traversal attempts
@@ -276,7 +383,9 @@ do_install() {
 # Status values: pending, running, failed
 
 get_queue_file() {
-    echo ".agents/$AGENT/queue.jsonl"
+    local agent_root
+    agent_root=$(get_agent_root)
+    echo "$agent_root/queue.jsonl"
 }
 
 # Helper to extract JSON field value
@@ -419,8 +528,13 @@ update_task_field() {
 # ============================================================================
 
 do_task() {
-    local taskname
-    taskname=$(sanitize_taskname "$1") || exit 1
+    local taskname=""
+
+    if [ $# -gt 0 ]; then
+        taskname="$1"
+    fi
+
+    taskname=$(sanitize_taskname "$taskname") || exit 1
 
     if [ -z "$taskname" ]; then
         echo -e "${RED}Error: Task name required${NC}"
@@ -428,9 +542,12 @@ do_task() {
         exit 1
     fi
 
-    local task_dir=".agents/$AGENT/tasks/${taskname}"
+    local agent_root
+    agent_root=$(get_agent_root)
+    local task_dir="$agent_root/tasks/${taskname}"
     local queue_file
     queue_file=$(get_queue_file)
+    local marker_file="$agent_root/.done_marker"
 
     # Check if task already exists in queue
     if [ -f "$queue_file" ] && grep -q "\"task\":\"$taskname\"" "$queue_file"; then
@@ -465,11 +582,11 @@ do_task() {
 # ============================================================================
 
 do_finish() {
-    local stage="${1:-task}"
+    local stage=""
     local override_next=""
-    shift || true
+    local task="${METAGENT_TASK:-}"
 
-    # Parse --next flag
+    # Parse flags and stage
     while [ $# -gt 0 ]; do
         case "$1" in
             --next)
@@ -477,15 +594,23 @@ do_finish() {
                 shift 2
                 ;;
             *)
+                if [ -z "$stage" ]; then
+                    stage="$1"
+                fi
                 shift
                 ;;
         esac
     done
 
+    stage="${stage:-task}"
+
     local queue_file
+    local marker_file=""
+    local agent_root
+    agent_root=$(get_agent_root)
+    marker_file="$agent_root/.done_marker"
+
     queue_file=$(get_queue_file)
-    local marker_file="${CLAUDE_DONE_MARKER:-}"
-    local task="${METAGENT_TASK:-}"
 
     # Validate stage
     local valid_stages
@@ -504,11 +629,43 @@ do_finish() {
         exit 1
     fi
 
+    if [ -n "$override_next" ]; then
+        local next_valid=false
+        local all_stages
+        all_stages=$(agent_stages)
+        for s in $all_stages; do
+            if [ "$s" = "$override_next" ]; then
+                next_valid=true
+                break
+            fi
+        done
+        if [ "$next_valid" = false ]; then
+            echo -e "${RED}Unknown next stage: $override_next${NC}"
+            echo "Valid stages: $all_stages"
+            exit 1
+        fi
+    fi
+
+    if [ -z "$task" ] && [ "$stage" != "task" ]; then
+        task=$(find_unique_task "$queue_file" "$stage" "running" || true)
+        if [ -z "$task" ]; then
+            task=$(find_unique_task "$queue_file" "$stage" "pending" || true)
+        fi
+        if [ -n "$task" ]; then
+            echo -e "${YELLOW}Warning: METAGENT_TASK not set; using '$task' from queue.${NC}"
+        else
+            echo -e "${RED}Error: METAGENT_TASK not set and no unique task found for stage '$stage'.${NC}"
+            exit 1
+        fi
+    fi
+
     # Get next stage: use override if provided, otherwise ask agent
     local next_stage=""
     if [ -n "$override_next" ]; then
         next_stage="$override_next"
-    elif [ "$stage" != "task" ]; then
+    elif [ "$stage" = "task" ]; then
+        next_stage="completed"
+    else
         next_stage=$(agent_next_stage "$stage")
     fi
     agent_finish_message "$stage"
@@ -528,18 +685,13 @@ do_finish() {
         echo "Advanced '$task' to stage: $next_stage"
     fi
 
-    # Signal orchestrator if running under metagent start
-    if [ -n "$marker_file" ]; then
-        echo "$stage" > "$marker_file"
-    else
-        # Running manually - just print next steps
-        echo ""
-        if [ -n "$next_stage" ]; then
-            echo "Next: Run 'metagent start' to continue, or manually run the $next_stage phase."
-        else
-            echo "Run 'metagent start' to continue with remaining tasks."
-        fi
-    fi
+    # Signal orchestrator by writing marker file
+    mkdir -p "$(dirname "$marker_file")"
+    {
+        echo "stage=$stage"
+        echo "next=$next_stage"
+        echo "task=$task"
+    } > "$marker_file"
 }
 
 # ============================================================================
@@ -549,12 +701,13 @@ do_finish() {
 do_start() {
     local queue_file
     queue_file=$(get_queue_file)
-    local marker_file="/tmp/.metagent-done-$$"
-    local metagent_dir="$HOME/.metagent/$AGENT"
     local initial_stage
     initial_stage=$(agent_initial_stage)
     local initial_prompt
     initial_prompt=$(agent_prompt_for_stage "$initial_stage" "")
+    local agent_root
+    agent_root=$(get_agent_root)
+    local marker_file="$agent_root/.done_marker"
 
     # Verify metagent is installed
     if [ ! -f "$initial_prompt" ]; then
@@ -563,7 +716,6 @@ do_start() {
     fi
 
     # Setup environment for metagent finish
-    export CLAUDE_DONE_MARKER="$marker_file"
     export METAGENT_AGENT="$AGENT"
 
     cleanup() {
@@ -581,21 +733,30 @@ do_start() {
     echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
     echo ""
 
-    # Get the stages that need orchestration (before ready)
-    local stages
-    stages=$(agent_stages)
+    local handoff_stage=""
+    if type agent_handoff_stage &>/dev/null; then
+        handoff_stage=$(agent_handoff_stage)
+    fi
+
     local orchestrated_stages=""
-    for s in $stages; do
-        if [ "$s" = "ready" ] || [ "$s" = "completed" ]; then
-            break
-        fi
-        orchestrated_stages="$orchestrated_stages $s"
-    done
+    if type agent_orchestrated_stages &>/dev/null; then
+        orchestrated_stages=$(agent_orchestrated_stages)
+    else
+        local stages
+        stages=$(agent_stages)
+        for s in $stages; do
+            if [ -n "$handoff_stage" ] && [ "$s" = "$handoff_stage" ]; then
+                break
+            fi
+            if [ "$s" = "completed" ]; then
+                break
+            fi
+            orchestrated_stages="$orchestrated_stages $s"
+        done
+    fi
 
     # Main loop - keeps running until all stages complete
     while true; do
-        rm -f "$marker_file"
-
         local taskname=""
         local stage=""
         local prompt_file=""
@@ -614,29 +775,38 @@ do_start() {
         fi
 
         if [ -z "$taskname" ]; then
-            # Check if we have tasks at ready stage
-            local ready_tasks
-            ready_tasks=$(grep "\"stage\":\"ready\"" "$queue_file" 2>/dev/null | grep "\"status\":\"pending\"" | head -1 || true)
-            if [ -n "$ready_tasks" ]; then
-                # Tasks are ready for build - stop here
-                echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-                echo -e "${GREEN}Planning complete!${NC}"
-                echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-                echo ""
-                echo "Tasks ready for build:"
-                grep "\"stage\":\"ready\"" "$queue_file" | while IFS= read -r line; do
-                    local task
-                    task=$(json_field "$line" "task")
-                    echo "  - $task"
-                done
-                echo ""
-                echo "Run 'metagent run-queue' or 'metagent run <taskname>' to start."
+            if [ -n "$handoff_stage" ]; then
+                local handoff_tasks
+                handoff_tasks=$(grep "\"stage\":\"$handoff_stage\"" "$queue_file" 2>/dev/null | grep "\"status\":\"pending\"" | head -1 || true)
+                if [ -n "$handoff_tasks" ]; then
+                    local handoff_label
+                    handoff_label=$(agent_stage_label "$handoff_stage")
+                    echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+                    echo -e "${GREEN}${handoff_label} stage reached!${NC}"
+                    echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+                    echo ""
+                    echo "Tasks ready for next phase:"
+                    grep "\"stage\":\"$handoff_stage\"" "$queue_file" | while IFS= read -r line; do
+                        local task
+                        task=$(json_field "$line" "task")
+                        echo "  - $task"
+                    done
+                    echo ""
+                    echo "Run 'metagent run-queue' or 'metagent run <taskname>' to continue."
+                    exit 0
+                fi
+            fi
+
+            if [ -f "$queue_file" ] && [ -s "$queue_file" ]; then
+                echo -e "${YELLOW}No pending tasks found.${NC}"
+                echo "Run 'metagent queue' to inspect tasks."
                 exit 0
             fi
 
             # No pending tasks at all - start with initial stage interview
             stage="interview"
             prompt_file="$initial_prompt"
+            unset METAGENT_TASK
             echo -e "${CYAN}Starting $(agent_stage_label "$initial_stage") interview...${NC}"
             echo ""
         else
@@ -656,63 +826,85 @@ do_start() {
             exit 1
         fi
 
+        rm -f "$marker_file"
+
         # Run claude in background
         if [ "$stage" = "interview" ]; then
-            sed "s/{task}/$taskname/g" "$prompt_file" | claude --dangerously-skip-permissions &
+            render_prompt "$prompt_file" "$taskname" | claude --dangerously-skip-permissions &
         else
-            (echo "Task: $taskname"; echo ""; sed "s/{task}/$taskname/g" "$prompt_file") | claude --dangerously-skip-permissions &
+            (echo "Task: $taskname"; echo ""; render_prompt "$prompt_file" "$taskname") | claude --dangerously-skip-permissions &
         fi
         CLAUDE_PID=$!
 
         # Monitor for marker file or claude exit
+        local marker_found=false
         while kill -0 "$CLAUDE_PID" 2>/dev/null; do
             if [ -f "$marker_file" ]; then
-                local marker_content
-                marker_content=$(cat "$marker_file")
+                marker_found=true
+                read_marker "$marker_file"
                 rm -f "$marker_file"
 
-                echo ""
-                local next_stage
-                next_stage=$(agent_next_stage "$marker_content")
+                local marker_stage
+                marker_stage="$MARKER_STAGE"
+                local marker_next
+                marker_next="$MARKER_NEXT"
 
-                if [ "$next_stage" = "ready" ]; then
-                    # Last orchestrated stage complete - let user review
-                    echo -e "${GREEN}✓${NC} $(agent_stage_label "$marker_content") phase complete"
+                echo ""
+
+                if [ -n "$handoff_stage" ] && [ "$marker_next" = "$handoff_stage" ]; then
+                    echo -e "${GREEN}✓${NC} $(agent_stage_label "$marker_stage") phase complete"
                     echo ""
                     echo -e "${CYAN}Review with Claude. Exit when ready.${NC}"
                     wait "$CLAUDE_PID" 2>/dev/null
 
                     echo ""
                     echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-                    echo -e "${GREEN}Planning complete!${NC}"
+                    echo -e "${GREEN}Ready to continue${NC}"
                     echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
                     echo ""
                     echo "Task '$taskname' is ready."
                     echo ""
                     echo "Run 'metagent run $taskname' or 'metagent run-queue' to start."
                     exit 0
-                else
-                    # More orchestrated stages - continue
-                    echo -e "${GREEN}✓${NC} $(agent_stage_label "$marker_content") phase complete"
-                    kill "$CLAUDE_PID" 2>/dev/null
-                    wait "$CLAUDE_PID" 2>/dev/null
-                    echo ""
-                    sleep 1
-                    break
                 fi
+
+                echo -e "${GREEN}✓${NC} $(agent_stage_label "$marker_stage") phase complete"
+                kill "$CLAUDE_PID" 2>/dev/null
+                wait "$CLAUDE_PID" 2>/dev/null
+                echo ""
+                sleep 1
+                break
             fi
             sleep 0.5
         done
 
-        # Check if we broke out due to stage completion (need to continue loop)
-        if [ "$stage" = "interview" ] && [ -f "$queue_file" ]; then
-            continue
-        elif [ -n "$stage" ] && [ "$stage" != "interview" ]; then
-            local next
-            next=$(agent_next_stage "$stage")
-            if [ -n "$next" ] && [ "$next" != "ready" ]; then
-                continue
+        if [ "$marker_found" = false ] && [ -f "$marker_file" ]; then
+            marker_found=true
+            read_marker "$marker_file"
+            rm -f "$marker_file"
+
+            local marker_stage
+            marker_stage="$MARKER_STAGE"
+            local marker_next
+            marker_next="$MARKER_NEXT"
+
+            echo ""
+
+            if [ -n "$handoff_stage" ] && [ "$marker_next" = "$handoff_stage" ]; then
+                echo -e "${GREEN}✓${NC} $(agent_stage_label "$marker_stage") phase complete"
+                echo ""
+                echo -e "${GREEN}Task '$taskname' is ready.${NC}"
+                echo ""
+                echo "Run 'metagent run $taskname' or 'metagent run-queue' to start."
+                exit 0
             fi
+
+            echo -e "${GREEN}✓${NC} $(agent_stage_label "$marker_stage") phase complete"
+            echo ""
+        fi
+
+        if [ "$marker_found" = true ]; then
+            continue
         fi
 
         # Claude exited without marker - unexpected
@@ -735,6 +927,9 @@ run_stage() {
     local stage="$2"
     local prompt_file
     prompt_file=$(agent_prompt_for_stage "$stage" "$taskname")
+    local agent_root
+    agent_root=$(get_agent_root)
+    local marker_file="$agent_root/.done_marker"
 
     if [ ! -f "$prompt_file" ]; then
         echo -e "${RED}Error: Prompt file not found: ${prompt_file}${NC}"
@@ -742,37 +937,25 @@ run_stage() {
     fi
 
     # Setup environment for metagent finish
-    local marker_file="/tmp/.metagent-done-$$"
-    export CLAUDE_DONE_MARKER="$marker_file"
     export METAGENT_TASK="$taskname"
     export METAGENT_AGENT="$AGENT"
     rm -f "$marker_file"
 
     # Run Claude with the prompt
-    local initial_stage
-    initial_stage=$(agent_initial_stage)
-    if [ "$stage" = "$initial_stage" ] || [ "$stage" = "planning" ]; then
-        echo -e "${CYAN}Task: ${taskname}${NC}"
-        echo ""
-        (echo "Task: $taskname"; echo ""; sed "s/{task}/$taskname/g" "$prompt_file") | claude --dangerously-skip-permissions
-    else
-        sed "s/{task}/$taskname/g" "$prompt_file" | claude --dangerously-skip-permissions
-    fi
+    echo -e "${CYAN}Task: ${taskname}${NC}"
+    echo ""
+    (echo "Task: $taskname"; echo ""; render_prompt "$prompt_file" "$taskname") | claude --dangerously-skip-permissions
     local exit_code=$?
 
     # Check if metagent finish was called
     if [ -f "$marker_file" ]; then
-        local marker_content
-        marker_content=$(cat "$marker_file")
+        read_marker "$marker_file"
         rm -f "$marker_file"
-
-        local next_stage
-        next_stage=$(agent_next_stage "$marker_content")
-        if [ -n "$next_stage" ] && [ "$next_stage" != "completed" ]; then
-            return 0  # Stage complete
+        if [ "$MARKER_NEXT" = "completed" ]; then
+            return 2  # Task complete
         fi
-        if [ "$marker_content" = "task" ]; then
-            return 2  # Task complete but more work to do
+        if [ -n "$MARKER_NEXT" ]; then
+            return 0  # Stage complete
         fi
     fi
 
@@ -872,7 +1055,9 @@ do_run() {
         exit 1
     fi
 
-    local task_dir=".agents/$AGENT/tasks/${taskname}"
+    local agent_root
+    agent_root=$(get_agent_root)
+    local task_dir="$agent_root/tasks/${taskname}"
     local queue_file
     queue_file=$(get_queue_file)
 
@@ -905,9 +1090,6 @@ do_run() {
         exit 1
     fi
 
-    # Marker file for metagent finish to signal task completion
-    local marker_file="/tmp/.metagent-done-$$"
-    export CLAUDE_DONE_MARKER="$marker_file"
     export METAGENT_AGENT="$AGENT"
     export METAGENT_TASK="$taskname"
 
@@ -923,8 +1105,6 @@ do_run() {
     local loop_count=0
     while true; do
         loop_count=$((loop_count + 1))
-        rm -f "$marker_file"
-
         # Re-read current stage (may have changed via --next flag)
         task_entry=$(grep "\"task\":\"$taskname\"" "$queue_file" || true)
         current_stage=$(json_field "$task_entry" "stage")
@@ -940,8 +1120,10 @@ do_run() {
         echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
         echo ""
 
+        rm -f "$marker_file"
+
         # Run claude in background so we can monitor for marker file
-        sed "s/{task}/$taskname/g" "$prompt_file" | claude --dangerously-skip-permissions &
+        (echo "Task: $taskname"; echo ""; render_prompt "$prompt_file" "$taskname") | claude --dangerously-skip-permissions &
         local CLAUDE_PID=$!
 
         # Monitor for marker file or claude exit

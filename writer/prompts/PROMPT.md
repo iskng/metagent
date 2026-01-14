@@ -193,17 +193,17 @@ Check editorial_plan.md to determine which command to run:
 
 1. **More pages in current section?** (unchecked `- [ ]` pages exist)
    ```bash
-   metagent finish write --next write
+   cd "{repo}" && METAGENT_TASK="{task}" metagent --agent writer finish write --next write
    ```
 
 2. **Section complete, more sections to plan?**
    ```bash
-   metagent finish write --next plan
+   cd "{repo}" && METAGENT_TASK="{task}" metagent --agent writer finish write --next plan
    ```
 
 3. **All sections complete?**
    ```bash
-   metagent finish write
+   cd "{repo}" && METAGENT_TASK="{task}" metagent --agent writer finish write
    ```
 
 **RUN THE APPROPRIATE COMMAND NOW using Bash tool, then STOP.**

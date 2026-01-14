@@ -34,7 +34,7 @@ Conduct the requirements interview (PART 1 below) FIRST. Once you understand:
 THEN create the task:
 
 ```bash
-metagent task {taskname}
+cd "{repo}" && metagent --agent code task {taskname}
 ```
 
 Choose a concise, descriptive task name based on what you learned (e.g., 'auth-system', 'api-caching', 'user-onboarding').
@@ -405,7 +405,7 @@ Key decisions:
 After specs are complete and validated, run:
 
 ```bash
-metagent finish spec
+cd "{repo}" && METAGENT_TASK="{task}" metagent --agent code finish spec
 ```
 
 This advances the task to the planning phase.

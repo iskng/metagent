@@ -51,4 +51,4 @@ Write plan.md as a bullet point list sorted by priority:
 
 999999999. **EVERY SPEC REQUIREMENT MUST MAP TO A TASK**
 
-9999999999. **WHEN PLAN IS COMPLETE, run `metagent finish planning` to advance to build phase**
+9999999999. **WHEN PLAN IS COMPLETE, run `cd "{repo}" && METAGENT_TASK="{task}" metagent --agent code finish planning` to advance to build phase**

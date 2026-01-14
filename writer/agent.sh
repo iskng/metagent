@@ -10,6 +10,16 @@ agent_stages() {
     echo "init plan write completed"
 }
 
+# Returns stages orchestrated by metagent start
+agent_orchestrated_stages() {
+    echo "init plan write"
+}
+
+# Returns the stage where metagent start should hand off (none for writer)
+agent_handoff_stage() {
+    echo ""
+}
+
 # Returns the initial stage for new tasks
 agent_initial_stage() {
     echo "init"

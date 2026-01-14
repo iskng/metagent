@@ -139,7 +139,7 @@ Also update "Current Task" to:
 ## STEP 7: SIGNAL COMPLETION
 
 ```bash
-metagent finish plan
+cd "{repo}" && METAGENT_TASK="{task}" metagent --agent writer finish plan
 ```
 
 ---

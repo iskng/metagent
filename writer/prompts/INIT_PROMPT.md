@@ -67,7 +67,7 @@ Before generating files, summarize back:
 Once requirements are clear, create the task:
 
 ```bash
-metagent task {projectname}
+cd "{repo}" && metagent --agent writer task {projectname}
 ```
 
 This creates the task directory at `.agents/writer/tasks/{projectname}/`.
@@ -249,7 +249,7 @@ After all files are generated:
 3. **Signal completion:**
 
 ```bash
-metagent finish init
+cd "{repo}" && METAGENT_TASK="{task}" metagent --agent writer finish init
 ```
 
 ---

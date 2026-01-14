@@ -59,16 +59,16 @@ metagent --agent writer init
 ```bash
 # Interactive mode
 metagent --agent writer start
-# Conducts interview → creates task → generates structure
+# Conducts interview → creates task → generates structure → runs plan/write loops
 
 # Or manually with /writer-init slash command in Claude
 ```
 
-### 4. Run the writing loop
+### 4. Resume the writing loop (optional)
 
 ```bash
 metagent --agent writer run my-book
-# Loops through: plan → write → write → ... → plan → write → ...
+# Resumes: plan → write → write → ... → plan → write → ...
 ```
 
 ---
@@ -216,6 +216,9 @@ metagent install
 
 # Initialize writer in a project
 metagent --agent writer init
+
+# Start a new writing task (interactive)
+metagent --agent writer start
 
 # Create a new task
 metagent --agent writer task my-book
