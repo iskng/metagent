@@ -20,6 +20,7 @@ agent_next_stage() {
         spec)     echo "planning" ;;
         planning) echo "ready" ;;
         ready)    echo "completed" ;;
+        task)     echo "completed" ;;
         *)        echo "" ;;
     esac
 }

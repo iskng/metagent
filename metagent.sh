@@ -88,6 +88,35 @@ load_agent() {
     source "$agent_script"
 }
 
+# Validate and sanitize task name
+# Only allows alphanumeric, hyphens, and underscores
+# Prevents path traversal and regex injection
+sanitize_taskname() {
+    local name="$1"
+    # Check for empty
+    if [ -z "$name" ]; then
+        echo ""
+        return 0
+    fi
+    # Check for invalid characters (only allow alphanumeric, hyphens, underscores)
+    if [[ ! "$name" =~ ^[a-zA-Z0-9_-]+$ ]]; then
+        echo -e "${RED}Error: Invalid task name '$name'${NC}" >&2
+        echo -e "Task names can only contain letters, numbers, hyphens, and underscores." >&2
+        return 1
+    fi
+    # Check for path traversal attempts
+    if [[ "$name" == *".."* ]] || [[ "$name" == "."* ]]; then
+        echo -e "${RED}Error: Invalid task name '$name'${NC}" >&2
+        return 1
+    fi
+    # Check reasonable length
+    if [ ${#name} -gt 100 ]; then
+        echo -e "${RED}Error: Task name too long (max 100 chars)${NC}" >&2
+        return 1
+    fi
+    echo "$name"
+}
+
 # ============================================================================
 # Init Command (per-repo setup)
 # ============================================================================
@@ -124,6 +153,7 @@ do_init() {
     fi
 
     # Check if .agents/$AGENT already exists
+    local do_overwrite=false
     if [ -d "$target_repo/.agents/$AGENT" ]; then
         echo -e "${YELLOW}Warning: .agents/$AGENT/ already exists in target${NC}"
         read -p "Overwrite? (y/N) " -n 1 -r
@@ -132,6 +162,7 @@ do_init() {
             echo "Aborted."
             exit 0
         fi
+        do_overwrite=true
     fi
 
     echo -e "${BLUE}Installing $AGENT agent to: ${target_repo}${NC}"
@@ -149,6 +180,9 @@ do_init() {
                 if [ ! -f "$dest" ]; then
                     cp "$file" "$dest"
                     echo -e "  ${GREEN}✓${NC} $filename"
+                elif [ "$do_overwrite" = true ]; then
+                    cp "$file" "$dest"
+                    echo -e "  ${GREEN}✓${NC} $filename (overwritten)"
                 else
                     echo -e "  ${YELLOW}⊘${NC} $filename (already exists)"
                 fi
@@ -251,7 +285,8 @@ json_field() {
 }
 
 do_queue() {
-    local taskname="$1"
+    local taskname
+    taskname=$(sanitize_taskname "$1") || exit 1
     local queue_file
     queue_file=$(get_queue_file)
 
@@ -323,7 +358,8 @@ do_queue() {
 }
 
 do_dequeue() {
-    local taskname="$1"
+    local taskname
+    taskname=$(sanitize_taskname "$1") || exit 1
     local queue_file
     queue_file=$(get_queue_file)
 
@@ -383,7 +419,8 @@ update_task_field() {
 # ============================================================================
 
 do_task() {
-    local taskname="$1"
+    local taskname
+    taskname=$(sanitize_taskname "$1") || exit 1
 
     if [ -z "$taskname" ]; then
         echo -e "${RED}Error: Task name required${NC}"
@@ -621,9 +658,9 @@ do_start() {
 
         # Run claude in background
         if [ "$stage" = "interview" ]; then
-            cat "$prompt_file" | claude --dangerously-skip-permissions &
+            sed "s/{task}/$taskname/g" "$prompt_file" | claude --dangerously-skip-permissions &
         else
-            (echo "Task: $taskname"; echo ""; cat "$prompt_file") | claude --dangerously-skip-permissions &
+            (echo "Task: $taskname"; echo ""; sed "s/{task}/$taskname/g" "$prompt_file") | claude --dangerously-skip-permissions &
         fi
         CLAUDE_PID=$!
 
@@ -717,9 +754,9 @@ run_stage() {
     if [ "$stage" = "$initial_stage" ] || [ "$stage" = "planning" ]; then
         echo -e "${CYAN}Task: ${taskname}${NC}"
         echo ""
-        (echo "Task: $taskname"; echo ""; cat "$prompt_file") | claude --dangerously-skip-permissions
+        (echo "Task: $taskname"; echo ""; sed "s/{task}/$taskname/g" "$prompt_file") | claude --dangerously-skip-permissions
     else
-        cat "$prompt_file" | claude --dangerously-skip-permissions
+        sed "s/{task}/$taskname/g" "$prompt_file" | claude --dangerously-skip-permissions
     fi
     local exit_code=$?
 
@@ -826,7 +863,8 @@ do_run_queue() {
 # ============================================================================
 
 do_run() {
-    local taskname="$1"
+    local taskname
+    taskname=$(sanitize_taskname "$1") || exit 1
 
     if [ -z "$taskname" ]; then
         echo -e "${RED}Error: Task name required${NC}"
@@ -902,10 +940,36 @@ do_run() {
         echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
         echo ""
 
-        sed "s/{task}/$taskname/g" "$prompt_file" | claude --dangerously-skip-permissions
-        local exit_code=$?
+        # Run claude in background so we can monitor for marker file
+        sed "s/{task}/$taskname/g" "$prompt_file" | claude --dangerously-skip-permissions &
+        local CLAUDE_PID=$!
 
+        # Monitor for marker file or claude exit
+        local marker_found=false
+        while kill -0 "$CLAUDE_PID" 2>/dev/null; do
+            if [ -f "$marker_file" ]; then
+                # Marker found - kill claude and continue loop
+                marker_found=true
+                kill "$CLAUDE_PID" 2>/dev/null
+                wait "$CLAUDE_PID" 2>/dev/null
+                rm -f "$marker_file"
+                echo ""
+                echo -e "${GREEN}Stage completed, continuing...${NC}"
+                echo ""
+                sleep 2
+                break
+            fi
+            sleep 0.5
+        done
+
+        # Continue loop if marker was found
+        if [ "$marker_found" = true ]; then
+            continue
+        fi
+
+        # Claude exited naturally - check if marker was written just before exit
         if [ -f "$marker_file" ]; then
+            rm -f "$marker_file"
             echo ""
             echo -e "${GREEN}Stage completed, continuing...${NC}"
             echo ""
@@ -913,9 +977,10 @@ do_run() {
             continue
         fi
 
+        # No marker - claude exited without signaling, stop loop
         echo ""
         echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-        echo -e "${GREEN}All tasks complete! Exiting loop.${NC}"
+        echo -e "${GREEN}Session ended. Run 'metagent run $taskname' to continue.${NC}"
         echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
         exit 0
     done

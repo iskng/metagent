@@ -27,11 +27,14 @@ Required files:
 - `.agents/code/AGENTS.md`
 - `.agents/code/TECHNICAL_STANDARDS.md`
 - `.agents/code/SPEC.md`
-- `.agents/code/SPEC_PROMPT.md`
-- `.agents/code/PLANNING_PROMPT.md`
-- `metagent task` command available
+- `metagent` command available
 
-If missing, inform user to copy templates first.
+Prompts are centralized at `~/.metagent/code/` and invoked via slash commands:
+- `/spec` - Specification phase
+- `/planner` - Planning phase
+- `/debug` - Bug diagnosis
+
+If `.agents/code/` is missing, inform user to run `metagent init` first.
 
 ---
 
@@ -567,8 +570,8 @@ Output summary:
 ║ Ready to use!                                                ║
 ║                                                              ║
 ║ Start a task:                                                ║
-║   metagent task my-feature                                   ║
-║   cat .agents/code/SPEC_PROMPT.md | claude --dangerously-skip-permissions              ║
+║   metagent start                                             ║
+║   (or: metagent task my-feature && run /spec)                ║
 ╚══════════════════════════════════════════════════════════════╝
 ```
 
