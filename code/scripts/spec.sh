@@ -131,116 +131,49 @@ sed_inplace "s/{{DATE}}/$(date +%Y-%m-%d)/g" "${TASK_DIR}/plan.md"
 
 # Create PROMPT.md template (build loop prompt)
 cat > "${TASK_DIR}/PROMPT.md" << 'PROMPT_EOF'
-# RALPH BUILD LOOP - {{TASKNAME}}
-
-## Context Stack (Load Every Loop)
-
-> Load these files in order for consistent knowledge
-
 0a. Study @.agents/code/SPEC.md - **Project specification** (what this project is and does)
+
 0b. Study @.agents/code/AGENTS.md - Build commands and learnings
+
 0c. Study @.agents/code/TECHNICAL_STANDARDS.md - Coding patterns
+
 0d. Study @.agents/code/tasks/{{TASKNAME}}/spec/*.md - All specification files
+
 0e. Study @.agents/code/tasks/{{TASKNAME}}/plan.md - Current task list
 
-## Primary Directive
+1. Your task is to implement {{TASKNAME}} per the specifications in spec/. Study plan.md and choose the **most important 10 items**. Before making changes search codebase (don't assume not implemented) using subagents. You may use up to 100 parallel subagents for all operations but only 1 subagent for build/tests.
 
-You are implementing: {{TASKNAME}}
+2. After implementing functionality or resolving problems, run the tests for that unit of code that was improved. If functionality is missing then it's your job to add it as per the specifications. Think hard.
 
-Each loop:
-1. Study plan.md, choose the **most important incomplete item**
-2. Research using subagents before implementing (NEVER assume not implemented)
-3. Implement according to specifications in spec/
-4. Run tests via single subagent
-5. If tests pass: commit, update plan.md, push
-6. If tests fail: fix them or document in plan.md
+3. When you discover a bug or issue, immediately update @.agents/code/tasks/{{TASKNAME}}/plan.md with your findings using a subagent. When the issue is resolved, update plan.md and remove the item using a subagent.
 
-## Subagent Configuration
+4. When the tests pass update plan.md, then add changed code and plan.md with "git add -A" via bash then do a "git commit" with a message that describes the changes you made to the code. After the commit do a "git push" to push the changes to the remote repository.
 
-> Primary context = SCHEDULER. Heavy work = SUBAGENTS.
+5. When you discover bugs unrelated to your current work, document them in plan.md immediately then resolve them using subagents before continuing.
 
-**Allowed parallelism:**
-- Codebase search: up to 100 parallel subagents
-- File reading: up to 100 parallel subagents
-- File writing: up to 50 parallel subagents (independent files only)
-- Build/test: **1 SUBAGENT ONLY**
-- plan.md updates: 1 subagent
-- AGENTS.md updates: 1 subagent
+---
 
-## Research Protocol (CRITICAL)
+9. Keep @.agents/code/tasks/{{TASKNAME}}/plan.md up to date with your learnings using a subagent. Especially after wrapping up/finishing your turn.
 
-> Prevent duplicate implementations - ripgrep is non-deterministic
+99. When you learn something new about how to build, test, or run the project make sure you update @.agents/code/AGENTS.md using a subagent but keep it brief.
 
-Before implementing ANYTHING:
+999. You may add extra logging if required to debug issues.
 
-1. **Exhaustive search** (minimum 5 different terms):
-   - Exact names, partial matches, synonyms, concepts
-   - Check: {UPDATE THIS WITH RELEVANT TERMS}
+9999. Single source of truth - no duplicates, no migrations/adapters. If tests unrelated to your work fail then it's your job to resolve these tests as part of the increment of change.
 
-2. **DO NOT ASSUME** code doesn't exist because:
-   - One search returned empty
-   - It's not in obvious places
+99999. When authoring documentation capture the "why" - why tests exist and why the backing implementation matters. Add README.md next to source code when documenting modules.
 
-3. **Think hard** about alternative locations/names
+999999. If you find inconsistencies in the spec/*.md files then use a subagent to think hard (the oracle) and then update the specs to resolve the inconsistency.
 
-## Implementation Standards
+9999999. When plan.md becomes large, periodically clean out the completed items from the file using a subagent.
 
-1. **One item per loop** - Most important first
-2. **Follow specs exactly** - spec/*.md is source of truth
-3. **Follow technical standards** - @.agents/code/TECHNICAL_STANDARDS.md
-4. **Full implementations only** - NO placeholders, stubs, TODOs
-5. **Single source of truth** - No duplicates
+99999999. For any bugs you notice, document them in plan.md then resolve them using a subagent.
 
-## Back Pressure - Testing
+999999999. **FULL IMPLEMENTATIONS ONLY. NO PLACEHOLDERS, STUBS, OR TODOS.**
 
-After implementing:
+9999999999. **DO NOT PUT STATUS UPDATES IN AGENTS.md**
 
-1. Run unit tests for changed code (1 subagent)
-2. If pass, run related tests (1 subagent)
-3. Document test results
-4. Fix ALL failures before committing
-
-## Success Protocol
-
-When tests pass:
-
-1. Update plan.md  - mark complete, add discoveries
-2. Commit:
-   ```bash
-   git add -A
-   git commit -m "{{TASKNAME}}: {description}"
-   git push
-   ```
-
-## Failure Protocol
-
-1. Document in plan.md
-2. Attempt to resolve if within scope
-3. If unresolvable: capture in plan.md, move to next item
-
-## Self-Improvement
-
-1. Build learnings → @.agents/code/AGENTS.md
-2. Bugs → plan.md
-3. Spec inconsistencies → Update spec files
-
-## Priority Rules
-
-0. Study all specs and plan before starting
-1. Choose ONE item from plan.md
-2. Research exhaustively before implementing
-3. Implement fully (no placeholders)
-4. Test the implementation
-5. Commit only if tests pass
-
-9. Keep plan.md updated with findings
-99. Keep AGENTS.md updated with learnings
-999. Search thoroughly - don't assume missing
-9999. Resolve ALL test failures before committing
-99999. Single source of truth - no duplicates
-
-999999. **FULL IMPLEMENTATIONS ONLY. NO PLACEHOLDERS.**
-9999999. **DO NOT PUT STATUS UPDATES IN AGENTS.md**
+99999999999. **DO ONLY ONE TASK FROM THE PLAN PER SESSION.**
 PROMPT_EOF
 
 # Replace placeholders in PROMPT.md

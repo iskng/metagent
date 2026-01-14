@@ -45,7 +45,8 @@ metagent --tracked                 # List tracked repos
 ~/.claude/commands/                # Slash commands
   ├── bootstrap.md -> ~/.metagent/BOOTSTRAP_PROMPT.md
   ├── spec.md -> ~/.metagent/SPEC_PROMPT.md
-  └── plan.md -> ~/.metagent/PLANNING_PROMPT.md
+  ├── planner.md -> ~/.metagent/PLANNING_PROMPT.md
+  └── debug.md -> ~/.metagent/DEBUG_PROMPT.md
 ```
 
 ### Per-repo (`metagent install`)
@@ -55,15 +56,23 @@ your-repo/.agents/code/
 ├── SPEC.md                        # Project specification (generated)
 ├── AGENTS.md                      # Build commands (configured)
 ├── TECHNICAL_STANDARDS.md         # Coding patterns (configured)
+├── issues.md                      # Outstanding bugs log
 ├── BOOTSTRAP_PROMPT.md
 ├── SPEC_PROMPT.md
 ├── PLANNING_PROMPT.md
+├── DEBUG_PROMPT.md
 ├── README.md
 ├── RECOVERY_PROMPT.md
 ├── REFRESH_PROMPT.md
 ├── scripts/
 │   └── spec.sh
-└── tasks/                         # Your task directories
+└── tasks/
+    └── {taskname}/
+        ├── spec/                  # Specifications
+        ├── plan.md                # Implementation plan
+        ├── PROMPT.md              # Build loop prompt
+        └── issues/                # Task-specific bugs
+            └── {taskname}-{bug-title}.md
 ```
 
 ## Workflow
@@ -71,14 +80,22 @@ your-repo/.agents/code/
 ```
 1. /bootstrap              # Configure for your project (once)
 2. /spec my-feature        # Specify what to build
-3. /plan my-feature        # Plan the implementation
+3. /planner my-feature        # Plan the implementation
 4. Build loop              # Execute the plan
+5. /debug                  # When bugs are found (creates issues/, updates plan)
 ```
 
 Build loop:
 ```bash
 while :; do cat .agents/code/tasks/my-feature/PROMPT.md | claude-code; done
 ```
+
+When a bug is encountered:
+- `/debug` identifies the related task/spec
+- Creates `issues/{taskname}-{bug-title}.md` with full bug documentation
+- Updates `issues.md` with outstanding bugs log
+- Writes failing test to confirm the bug
+- Tracks fix progress in the issue file
 
 ## Syncing Updates
 

@@ -395,11 +395,13 @@ do_link() {
     for commands_dir in "$claude_commands" "$codex_commands"; do
         ln -sf "$metagent_dir/BOOTSTRAP_PROMPT.md" "$commands_dir/bootstrap.md"
         ln -sf "$metagent_dir/SPEC_PROMPT.md" "$commands_dir/spec.md"
-        ln -sf "$metagent_dir/PLANNING_PROMPT.md" "$commands_dir/plan.md"
+        ln -sf "$metagent_dir/PLANNING_PROMPT.md" "$commands_dir/planner.md"
+        ln -sf "$metagent_dir/DEBUG_PROMPT.md" "$commands_dir/debug.md"
     done
     echo -e "  ${GREEN}✓${NC} /bootstrap"
     echo -e "  ${GREEN}✓${NC} /spec"
-    echo -e "  ${GREEN}✓${NC} /plan"
+    echo -e "  ${GREEN}✓${NC} /planner"
+    echo -e "  ${GREEN}✓${NC} /debug"
 
     # Check if ~/.local/bin is in PATH
     echo ""
@@ -418,8 +420,8 @@ do_link() {
     echo "Installed:"
     echo "  ~/.local/bin/metagent     - CLI tool"
     echo "  ~/.metagent/              - Global prompts"
-    echo "  ~/.claude/commands/       - Slash commands (/bootstrap, /spec, /plan)"
-    echo "  ~/.codex/commands/        - Slash commands (/bootstrap, /spec, /plan)"
+    echo "  ~/.claude/commands/       - Slash commands (/bootstrap, /spec, /planner, /debug)"
+    echo "  ~/.codex/commands/        - Slash commands (/bootstrap, /spec, /planner, /debug)"
 }
 
 do_unlink() {
@@ -436,7 +438,7 @@ do_unlink() {
 
     # Remove slash commands from both Claude and Codex
     for commands_dir in "$claude_commands" "$codex_commands"; do
-        for cmd in bootstrap.md spec.md plan.md; do
+        for cmd in bootstrap.md spec.md planner.md debug.md; do
             if [ -L "$commands_dir/$cmd" ]; then
                 rm "$commands_dir/$cmd"
             fi

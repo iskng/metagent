@@ -390,21 +390,6 @@ Key decisions:
   1. {Decision}: {rationale}
 ```
 
-### 4.2 Completion Marker
-
-```bash
-echo "SPEC_COMPLETE=$(date +%Y-%m-%d)" > .agents/code/tasks/{taskname}/spec/.status
-```
-
-### 4.3 Handoff
-
-```
-✅ Specifications complete for: {taskname}
-
-Next: cat .agents/code/PLANNING_PROMPT.md | claude-code
-Tell it: plan for {taskname}
-```
-
 ---
 
 ## RULES
@@ -417,7 +402,7 @@ Tell it: plan for {taskname}
 
 ## PRIORITY
 
-9. Run bootstrap script first
+9. Research the code and understand how it works
 99. Interview before exploring
 999. Confirm understanding with user
 9999. Complete specs - no placeholders
