@@ -902,7 +902,7 @@ do_run() {
         echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
         echo ""
 
-        cat "$prompt_file" | claude --dangerously-skip-permissions
+        sed "s/{task}/$taskname/g" "$prompt_file" | claude --dangerously-skip-permissions
         local exit_code=$?
 
         if [ -f "$marker_file" ]; then

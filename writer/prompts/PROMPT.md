@@ -187,34 +187,26 @@ When problems are found:
 
 ## Signal Completion
 
-When page is complete and checks pass, check editorial_plan.md to determine next action:
+**YOU MUST RUN ONE OF THESE COMMANDS before stopping.** The orchestrator depends on this signal.
 
-### Decision Logic
+Check editorial_plan.md to determine which command to run:
 
-1. **Check current section's page breakdown** - are there unchecked `- [ ]` pages?
-   - YES → more pages to write in this section
-   - NO → section complete
+1. **More pages in current section?** (unchecked `- [ ]` pages exist)
+   ```bash
+   metagent finish write --next write
+   ```
 
-2. **If section complete, check section status table** - are there unplanned sections?
-   - YES → need to plan next section
-   - NO → project complete
+2. **Section complete, more sections to plan?**
+   ```bash
+   metagent finish write --next plan
+   ```
 
-### Commands
+3. **All sections complete?**
+   ```bash
+   metagent finish write
+   ```
 
-**More pages in current section:**
-```bash
-metagent finish write --next write
-```
-
-**Section complete, more sections to plan:**
-```bash
-metagent finish write --next plan
-```
-
-**All sections complete (project done):**
-```bash
-metagent finish write
-```
+**RUN THE APPROPRIATE COMMAND NOW using Bash tool, then STOP.**
 
 ---
 
