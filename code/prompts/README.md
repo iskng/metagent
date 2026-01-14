@@ -24,7 +24,7 @@ A structured, 3-phase autonomous coding workflow based on the Ralph Wiggum techn
 │  │                       INCREMENTAL LOOP                                 │  │
 │  │                   {task}/PROMPT.md (per task)                          │  │
 │  │                                                                        │  │
-│  │   while :; do cat .agents/code/tasks/{task}/PROMPT.md | claude-code; done    │  │
+│  │   metagent run {task}                                                │  │
 │  │                                                                        │  │
 │  │   Each loop:                                                           │  │
 │  │   1. Load specs & plan                                                 │  │
@@ -50,7 +50,7 @@ A structured, 3-phase autonomous coding workflow based on the Ralph Wiggum techn
 
 ```bash
 # Copy bootstrap prompt and run it
-cat BOOTSTRAP_PROMPT.md | claude-code
+cat BOOTSTRAP_PROMPT.md | claude --dangerously-skip-permissions
 
 # It will:
 # - Detect your language/framework
@@ -62,34 +62,30 @@ cat BOOTSTRAP_PROMPT.md | claude-code
 ### 2. Start a Task
 
 ```bash
-# Create task directory
-.agents/code/scripts/spec.sh my-feature
+# Interactive mode (recommended)
+metagent start
+# Conducts interview → creates task → specs → planning
 
-# Phase 1: Specification
-cat .agents/code/SPEC_PROMPT.md | claude-code
-# Tell it: "my-feature"
-# Answer interview questions
-# Review specs in .agents/code/tasks/my-feature/spec/
+# Or manually:
+metagent task my-feature                # Create task
+cat .agents/code/SPEC_PROMPT.md | claude --dangerously-skip-permissions  # Write specs
+metagent finish spec                    # Advance to planning
+cat .agents/code/PLANNING_PROMPT.md | claude --dangerously-skip-permissions  # Create plan
+metagent finish planning                # Advance to ready
 
-# Phase 2: Planning
-cat .agents/code/PLANNING_PROMPT.md | claude-code
-# Tell it: "my-feature"
-# Review plan in .agents/code/tasks/my-feature/plan.md
-
-# Phase 3: Build Loop
-while :; do cat .agents/code/tasks/my-feature/PROMPT.md | claude-code; done
-# Monitor output
-# Ctrl+C when done or to intervene
+# Build Loop
+metagent run my-feature
+# Monitor output, Ctrl+C to intervene
 ```
 
 ### 3. Recovery
 
 ```bash
 # When things go wrong
-cat .agents/code/recovery_prompt.md | claude-code
+cat .agents/code/recovery_prompt.md | claude --dangerously-skip-permissions
 
 # To refresh stale plan
-cat .agents/code/refresh_prompt.md | claude-code
+cat .agents/code/refresh_prompt.md | claude --dangerously-skip-permissions
 ```
 
 ---
@@ -118,8 +114,6 @@ project/
 │               │   └── errors.md
 │               ├── plan.md          # Prioritized task list
 │               └── PROMPT.md        # Build loop prompt
-├── scripts/
-│   └── spec.sh                      # Task bootstrapper
 └── src/                             # Your source code
 ```
 

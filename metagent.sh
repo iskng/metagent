@@ -1,23 +1,19 @@
 #!/bin/bash
-# metagent.sh - Install and sync agent workflows
+# metagent.sh - Agent workflow manager
 #
 # Usage:
 #   metagent link                        Setup metagent globally (first time)
-#   metagent install [options] [path]    Install agent to repo
-#   metagent sync [options] [path]       Sync prompts to repo
+#   metagent install [path]              Install agent to repo
+#   metagent start                       Start new task (interview → spec → planning)
+#   metagent task <taskname>             Create task directory and add to queue
+#   metagent finish <stage>              Signal stage completion (spec/planning)
+#   metagent run <taskname>              Run build loop for a task
+#   metagent queue [taskname]            Add task to queue / show queue
+#   metagent dequeue <taskname>          Remove task from queue
+#   metagent run-queue                   Process all queued tasks
 #   metagent unlink                      Remove metagent
 #
-# Install options:
-#   -a, --agent NAME    Agent to install (default: code)
-#
-# Sync options:
-#   -a, --agent NAME    Agent to sync (default: code)
-#   --all               Sync all tracked repos
-#   --dry-run           Preview changes
-#
 # Common options:
-#   -l, --list          List available agents
-#   --tracked           List tracked repos
 #   -h, --help          Show help
 
 set -e
@@ -30,84 +26,66 @@ BLUE='\033[0;34m'
 CYAN='\033[0;36m'
 NC='\033[0m'
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-AGENT="code"
-DRY_RUN=false
+# Resolve symlinks to get the actual script directory
+SCRIPT_SOURCE="${BASH_SOURCE[0]}"
+while [ -L "$SCRIPT_SOURCE" ]; do
+    SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_SOURCE")" && pwd)"
+    SCRIPT_SOURCE="$(readlink "$SCRIPT_SOURCE")"
+    # Handle relative symlinks
+    [[ $SCRIPT_SOURCE != /* ]] && SCRIPT_SOURCE="$SCRIPT_DIR/$SCRIPT_SOURCE"
+done
+SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_SOURCE")" && pwd)"
+AGENT="${METAGENT_AGENT:-code}"  # Default to code, can be overridden
 
 # ============================================================================
 # Helper Functions
 # ============================================================================
 
 show_help() {
-    echo "metagent - Install and sync agent workflows"
+    echo "metagent - Agent workflow manager"
     echo ""
     echo "Usage:"
-    echo "  metagent link                        Setup globally (first time)"
-    echo "  metagent install [options] [path]    Install agent to repo"
-    echo "  metagent sync [options] [path]       Sync prompts to repo"
-    echo "  metagent unlink                      Remove metagent"
+    echo "  metagent [--agent TYPE] <command> [args]"
     echo ""
-    echo "Install/Sync options:"
-    echo "  -a, --agent NAME    Agent to use (default: code)"
-    echo "  --all               Sync all tracked repos"
-    echo "  --dry-run           Preview sync changes"
+    echo "Agent Types:"
+    echo "  code                 Software development (default)"
+    echo "  writer               Writing projects"
     echo ""
-    echo "Other options:"
-    echo "  -l, --list          List available agents"
-    echo "  --tracked           List tracked repos"
+    echo "Commands:"
+    echo "  link                        Setup globally (first time)"
+    echo "  install [path]              Install agent to repo"
+    echo "  start                       Start new task (interview → spec → planning)"
+    echo "  task <taskname>             Create task directory and add to queue"
+    echo "  finish <stage>              Signal stage completion"
+    echo "  run <taskname>              Run loop for a task"
+    echo "  queue [taskname]            Show queue / add task to queue"
+    echo "  dequeue <taskname>          Remove task from queue"
+    echo "  run-queue                   Process all queued tasks"
+    echo "  unlink                      Remove metagent"
+    echo ""
+    echo "Options:"
+    echo "  --agent TYPE        Select agent type (code, writer)"
     echo "  -h, --help          Show help"
     echo ""
     echo "Examples:"
     echo "  metagent link                        # First time setup"
-    echo "  metagent install                     # Install to current dir"
-    echo "  metagent install ~/projects/app      # Install to specific dir"
-    echo "  metagent sync --all                  # Sync all tracked repos"
+    echo "  metagent install                     # Install code agent to current dir"
+    echo "  metagent --agent writer install      # Install writer agent"
+    echo "  metagent start                       # Start new task interactively"
+    echo "  metagent task my-feature             # Create task (used by model)"
+    echo "  metagent finish spec                 # Signal spec phase complete"
+    echo "  metagent run my-feature              # Run loop for existing task"
+    echo "  metagent queue                       # Show task queue"
 }
 
-list_agents() {
-    echo -e "${BLUE}Available agents:${NC}"
-    for agent_dir in "$SCRIPT_DIR"/*/; do
-        if [ -d "$agent_dir" ] && [ "$(basename "$agent_dir")" != ".git" ]; then
-            agent_name=$(basename "$agent_dir")
-            if [ "$agent_name" = "code" ]; then
-                echo "  $agent_name (default)"
-            else
-                echo "  $agent_name"
-            fi
-        fi
-    done
-}
-
-find_tracked_repos() {
-    local found=()
-    for search_dir in "$HOME/dev" "$HOME/projects" "$HOME/code" "$HOME/repos" "$(dirname "$SCRIPT_DIR")"; do
-        if [ -d "$search_dir" ]; then
-            while IFS= read -r -d '' marker; do
-                if grep -q "source=$SCRIPT_DIR" "$marker" 2>/dev/null; then
-                    local repo_dir=$(dirname "$(dirname "$(dirname "$marker")")")
-                    local agent=$(grep "^agent=" "$marker" 2>/dev/null | cut -d= -f2)
-                    found+=("$repo_dir:$agent")
-                fi
-            done < <(find "$search_dir" -name ".metagent-source" -print0 2>/dev/null)
-        fi
-    done
-    printf '%s\n' "${found[@]}" | sort -u
-}
-
-list_tracked() {
-    echo -e "${BLUE}Tracked repositories:${NC}"
-    repos=$(find_tracked_repos)
-    if [ -z "$repos" ]; then
-        echo "  (none found)"
-    else
-        echo "$repos" | while read -r entry; do
-            if [ -n "$entry" ]; then
-                repo=$(echo "$entry" | cut -d: -f1)
-                agent=$(echo "$entry" | cut -d: -f2)
-                echo "  $repo ($agent)"
-            fi
-        done
+# Load agent-specific functions
+load_agent() {
+    local agent_script="$SCRIPT_DIR/$AGENT/agent.sh"
+    if [ ! -f "$agent_script" ]; then
+        echo -e "${RED}Error: Agent '$AGENT' not found at $agent_script${NC}"
+        exit 1
     fi
+    source "$agent_script"
 }
 
 # ============================================================================
@@ -116,6 +94,13 @@ list_tracked() {
 
 do_install() {
     local target_repo="$1"
+    local metagent_dir="$HOME/.metagent"
+
+    # Check metagent is linked
+    if [ ! -d "$metagent_dir/$AGENT" ]; then
+        echo -e "${RED}Error: metagent $AGENT agent not linked. Run 'metagent link' first.${NC}"
+        exit 1
+    fi
 
     # Use current directory if no path given
     if [ -z "$target_repo" ]; then
@@ -125,14 +110,6 @@ do_install() {
             echo -e "${RED}Error: Target directory does not exist: $target_repo${NC}"
             exit 1
         }
-    fi
-
-    # Validate agent exists
-    local agent_dir="$SCRIPT_DIR/$AGENT"
-    if [ ! -d "$agent_dir" ]; then
-        echo -e "${RED}Error: Agent '$AGENT' not found${NC}"
-        list_agents
-        exit 1
     fi
 
     # Check if target is a git repo
@@ -146,7 +123,7 @@ do_install() {
         fi
     fi
 
-    # Check if .agents/{agent} already exists
+    # Check if .agents/$AGENT already exists
     if [ -d "$target_repo/.agents/$AGENT" ]; then
         echo -e "${YELLOW}Warning: .agents/$AGENT/ already exists in target${NC}"
         read -p "Overwrite? (y/N) " -n 1 -r
@@ -157,206 +134,34 @@ do_install() {
         fi
     fi
 
-    echo -e "${BLUE}Installing '$AGENT' agent to: ${target_repo}${NC}"
+    echo -e "${BLUE}Installing $AGENT agent to: ${target_repo}${NC}"
 
     # Create directory structure
-    echo -e "${BLUE}Creating directory structure...${NC}"
-    mkdir -p "$target_repo/.agents/$AGENT/scripts"
     mkdir -p "$target_repo/.agents/$AGENT/tasks"
 
-    # Copy prompts
-    if [ -d "$agent_dir/prompts" ]; then
-        echo -e "${BLUE}Copying prompts...${NC}"
-        for file in "$agent_dir/prompts"/*; do
+    # Copy templates (project-specific files)
+    local templates_dir="$SCRIPT_DIR/$AGENT/templates"
+    if [ -d "$templates_dir" ]; then
+        for file in "$templates_dir"/*; do
             if [ -f "$file" ]; then
-                cp "$file" "$target_repo/.agents/$AGENT/"
-                echo -e "  ${GREEN}✓${NC} $(basename "$file")"
-            fi
-        done
-    fi
-
-    # Copy scripts
-    if [ -d "$agent_dir/scripts" ]; then
-        echo -e "${BLUE}Copying scripts...${NC}"
-        for file in "$agent_dir/scripts"/*; do
-            if [ -f "$file" ]; then
-                cp "$file" "$target_repo/.agents/$AGENT/scripts/"
-                chmod +x "$target_repo/.agents/$AGENT/scripts/$(basename "$file")"
-                echo -e "  ${GREEN}✓${NC} scripts/$(basename "$file")"
-            fi
-        done
-    fi
-
-    # Copy templates (only if they don't exist)
-    if [ -d "$agent_dir/templates" ]; then
-        echo -e "${BLUE}Copying templates...${NC}"
-        for file in "$agent_dir/templates"/*; do
-            if [ -f "$file" ]; then
-                dest="$target_repo/.agents/$AGENT/$(basename "$file")"
+                local filename=$(basename "$file")
+                local dest="$target_repo/.agents/$AGENT/$filename"
                 if [ ! -f "$dest" ]; then
                     cp "$file" "$dest"
-                    echo -e "  ${GREEN}✓${NC} $(basename "$file")"
-                else
-                    echo -e "  ${YELLOW}⊘${NC} $(basename "$file") (already exists - skipped)"
-                fi
-            fi
-        done
-    fi
-
-    # Create .metagent marker file
-    cat > "$target_repo/.agents/$AGENT/.metagent-source" << EOF
-source=$SCRIPT_DIR
-agent=$AGENT
-installed=$(date +%Y-%m-%d)
-EOF
-
-    echo ""
-    echo -e "${GREEN}✓ Agent '$AGENT' installed successfully!${NC}"
-    echo ""
-    echo "Installed to: $target_repo/.agents/$AGENT/"
-    echo ""
-    echo -e "${YELLOW}Next steps:${NC}"
-    echo "1. Run bootstrap to configure for your project:"
-    echo "   /bootstrap"
-    echo ""
-    echo "2. Start a task:"
-    echo "   /spec my-feature"
-    echo "   /plan my-feature"
-    echo ""
-    echo "3. Run build loop:"
-    echo "   while :; do cat .agents/$AGENT/tasks/{taskname}/PROMPT.md | claude-code; done"
-    echo ""
-    echo "(If slash commands aren't available, run: metagent link)"
-}
-
-# ============================================================================
-# Sync Command
-# ============================================================================
-
-sync_repo() {
-    local target_repo="$1"
-    local agent="$2"
-    local agents_dir="$target_repo/.agents/$agent"
-    local agent_source="$SCRIPT_DIR/$agent"
-
-    if [ ! -d "$agents_dir" ]; then
-        echo -e "${RED}Error: No .agents/$agent/ found in $target_repo${NC}"
-        return 1
-    fi
-
-    if [ ! -d "$agent_source" ]; then
-        echo -e "${RED}Error: Agent '$agent' not found in metagent${NC}"
-        return 1
-    fi
-
-    echo -e "${BLUE}Syncing '$agent' to: ${target_repo}${NC}"
-
-    # Sync prompts
-    if [ -d "$agent_source/prompts" ]; then
-        for file in "$agent_source/prompts"/*; do
-            if [ -f "$file" ]; then
-                local filename=$(basename "$file")
-                local dest="$agents_dir/$filename"
-
-                if [ "$DRY_RUN" = true ]; then
-                    if [ -f "$dest" ]; then
-                        if ! diff -q "$file" "$dest" > /dev/null 2>&1; then
-                            echo -e "  ${CYAN}[would update]${NC} $filename"
-                        else
-                            echo -e "  ${GREEN}[unchanged]${NC} $filename"
-                        fi
-                    else
-                        echo -e "  ${CYAN}[would create]${NC} $filename"
-                    fi
-                else
-                    cp "$file" "$dest"
                     echo -e "  ${GREEN}✓${NC} $filename"
-                fi
-            fi
-        done
-    fi
-
-    # Sync scripts
-    if [ -d "$agent_source/scripts" ]; then
-        for file in "$agent_source/scripts"/*; do
-            if [ -f "$file" ]; then
-                local filename=$(basename "$file")
-                local dest="$agents_dir/scripts/$filename"
-
-                if [ "$DRY_RUN" = true ]; then
-                    if [ -f "$dest" ]; then
-                        if ! diff -q "$file" "$dest" > /dev/null 2>&1; then
-                            echo -e "  ${CYAN}[would update]${NC} scripts/$filename"
-                        else
-                            echo -e "  ${GREEN}[unchanged]${NC} scripts/$filename"
-                        fi
-                    else
-                        echo -e "  ${CYAN}[would create]${NC} scripts/$filename"
-                    fi
                 else
-                    mkdir -p "$agents_dir/scripts"
-                    cp "$file" "$dest"
-                    chmod +x "$dest"
-                    echo -e "  ${GREEN}✓${NC} scripts/$filename"
+                    echo -e "  ${YELLOW}⊘${NC} $filename (already exists)"
                 fi
             fi
         done
-    fi
-
-    # Update sync timestamp
-    if [ "$DRY_RUN" = false ]; then
-        cat > "$agents_dir/.metagent-source" << EOF
-source=$SCRIPT_DIR
-agent=$agent
-synced=$(date +%Y-%m-%d)
-EOF
     fi
 
     echo ""
-}
-
-do_sync() {
-    local target_repo="$1"
-    local sync_all="$2"
-
-    if [ "$sync_all" = true ]; then
-        repos=$(find_tracked_repos)
-        if [ -z "$repos" ]; then
-            echo -e "${YELLOW}No tracked repositories found${NC}"
-            exit 0
-        fi
-        echo -e "${BLUE}Syncing all tracked repositories...${NC}"
-        echo ""
-        echo "$repos" | while read -r entry; do
-            if [ -n "$entry" ]; then
-                repo=$(echo "$entry" | cut -d: -f1)
-                agent=$(echo "$entry" | cut -d: -f2)
-                sync_repo "$repo" "$agent"
-            fi
-        done
-        echo -e "${GREEN}Done!${NC}"
-    else
-        # Use current directory if no path given
-        if [ -z "$target_repo" ]; then
-            target_repo="$(pwd)"
-        else
-            target_repo="$(cd "$target_repo" 2>/dev/null && pwd)" || {
-                echo -e "${RED}Error: Target directory does not exist: $target_repo${NC}"
-                exit 1
-            }
-        fi
-
-        if [ "$DRY_RUN" = true ]; then
-            echo -e "${CYAN}Dry run - showing what would change:${NC}"
-            echo ""
-        fi
-
-        sync_repo "$target_repo" "$AGENT"
-
-        if [ "$DRY_RUN" = false ]; then
-            echo -e "${GREEN}Sync complete!${NC}"
-        fi
-    fi
+    echo -e "${GREEN}✓ Installed!${NC}"
+    echo ""
+    echo "Created: $target_repo/.agents/$AGENT/"
+    echo ""
+    agent_install_message
 }
 
 # ============================================================================
@@ -367,11 +172,10 @@ do_link() {
     local bin_dir="$HOME/.local/bin"
     local metagent_dir="$HOME/.metagent"
     local claude_commands="$HOME/.claude/commands"
-    local codex_commands="$HOME/.codex/commands"
+    local codex_commands="$HOME/.codex/prompts"
 
     # Create directories
     mkdir -p "$bin_dir"
-    mkdir -p "$metagent_dir"
     mkdir -p "$claude_commands"
     mkdir -p "$codex_commands"
 
@@ -379,29 +183,33 @@ do_link() {
     ln -sf "$SCRIPT_DIR/metagent.sh" "$bin_dir/metagent"
     echo -e "${GREEN}✓${NC} Linked metagent to $bin_dir/metagent"
 
-    # Copy prompts to ~/.metagent/
-    echo -e "${BLUE}Installing prompts to $metagent_dir...${NC}"
-    if [ -d "$SCRIPT_DIR/$AGENT/prompts" ]; then
-        for file in "$SCRIPT_DIR/$AGENT/prompts"/*; do
-            if [ -f "$file" ]; then
-                cp "$file" "$metagent_dir/"
-                echo -e "  ${GREEN}✓${NC} $(basename "$file")"
-            fi
-        done
-    fi
+    # Install each agent's prompts
+    for agent_dir in "$SCRIPT_DIR"/*/; do
+        local agent_name=$(basename "$agent_dir")
+        # Skip if not a valid agent (must have agent.sh)
+        if [ ! -f "$agent_dir/agent.sh" ]; then
+            continue
+        fi
 
-    # Link slash commands to ~/.metagent/ prompts (for both Claude and Codex)
-    echo -e "${BLUE}Installing slash commands...${NC}"
-    for commands_dir in "$claude_commands" "$codex_commands"; do
-        ln -sf "$metagent_dir/BOOTSTRAP_PROMPT.md" "$commands_dir/bootstrap.md"
-        ln -sf "$metagent_dir/SPEC_PROMPT.md" "$commands_dir/spec.md"
-        ln -sf "$metagent_dir/PLANNING_PROMPT.md" "$commands_dir/planner.md"
-        ln -sf "$metagent_dir/DEBUG_PROMPT.md" "$commands_dir/debug.md"
+        mkdir -p "$metagent_dir/$agent_name"
+
+        # Copy prompts
+        if [ -d "$agent_dir/prompts" ]; then
+            echo -e "${BLUE}Installing $agent_name prompts...${NC}"
+            for file in "$agent_dir/prompts"/*; do
+                if [ -f "$file" ]; then
+                    cp "$file" "$metagent_dir/$agent_name/"
+                    echo -e "  ${GREEN}✓${NC} $(basename "$file")"
+                fi
+            done
+        fi
+
+        # Source agent to get slash command config
+        source "$agent_dir/agent.sh"
+        if type agent_slash_commands &>/dev/null; then
+            agent_slash_commands "$metagent_dir/$agent_name" "$claude_commands" "$codex_commands"
+        fi
     done
-    echo -e "  ${GREEN}✓${NC} /bootstrap"
-    echo -e "  ${GREEN}✓${NC} /spec"
-    echo -e "  ${GREEN}✓${NC} /planner"
-    echo -e "  ${GREEN}✓${NC} /debug"
 
     # Check if ~/.local/bin is in PATH
     echo ""
@@ -419,16 +227,671 @@ do_link() {
     echo ""
     echo "Installed:"
     echo "  ~/.local/bin/metagent     - CLI tool"
-    echo "  ~/.metagent/              - Global prompts"
-    echo "  ~/.claude/commands/       - Slash commands (/bootstrap, /spec, /planner, /debug)"
-    echo "  ~/.codex/commands/        - Slash commands (/bootstrap, /spec, /planner, /debug)"
+    echo "  ~/.metagent/              - Agent prompts"
+    echo "  ~/.claude/commands/       - Slash commands"
+    echo "  ~/.codex/prompts/         - Slash commands"
+}
+
+# ============================================================================
+# Queue Commands
+# ============================================================================
+
+# Queue file format (JSON lines for easy parsing):
+# {"task":"name","added":"2024-01-13T10:30:00","stage":"spec","status":"pending"}
+#
+# Status values: pending, running, failed
+
+get_queue_file() {
+    echo ".agents/$AGENT/queue.jsonl"
+}
+
+# Helper to extract JSON field value
+json_field() {
+    echo "$1" | grep -o "\"$2\":\"[^\"]*\"" | cut -d'"' -f4
+}
+
+do_queue() {
+    local taskname="$1"
+    local queue_file
+    queue_file=$(get_queue_file)
+
+    # No argument - show queue
+    if [ -z "$taskname" ]; then
+        if [ ! -f "$queue_file" ]; then
+            echo -e "${YELLOW}No tasks${NC}"
+            exit 0
+        fi
+
+        echo -e "${BLUE}Tasks:${NC}"
+        echo ""
+
+        # Group by stage (get stages from agent)
+        local stages
+        stages=$(agent_stages)
+        for stage in $stages; do
+            local stage_tasks
+            stage_tasks=$(grep "\"stage\":\"$stage\"" "$queue_file" 2>/dev/null || true)
+
+            if [ -n "$stage_tasks" ]; then
+                local label
+                label=$(agent_stage_label "$stage")
+                case "$stage" in
+                    *completed*) echo -e "${GREEN}${label}:${NC}" ;;
+                    *ready*)     echo -e "${BLUE}${label}:${NC}" ;;
+                    *planning*)  echo -e "${CYAN}${label}:${NC}" ;;
+                    *)           echo -e "${YELLOW}${label}:${NC}" ;;
+                esac
+
+                echo "$stage_tasks" | while IFS= read -r line; do
+                    local task status
+                    task=$(json_field "$line" "task")
+                    status=$(json_field "$line" "status")
+
+                    case "$status" in
+                        pending) echo -e "  ○ ${task}" ;;
+                        running) echo -e "  ${BLUE}●${NC} ${task} (running)" ;;
+                        failed)  echo -e "  ${RED}✗${NC} ${task} (failed)" ;;
+                        *)       echo -e "  ○ ${task}" ;;
+                    esac
+                done
+                echo ""
+            fi
+        done
+        exit 0
+    fi
+
+    # Check if already in queue
+    if [ -f "$queue_file" ] && grep -q "\"task\":\"$taskname\"" "$queue_file"; then
+        echo -e "${YELLOW}Task '$taskname' already exists${NC}"
+        # Show current stage
+        local current
+        current=$(grep "\"task\":\"$taskname\"" "$queue_file")
+        local stage
+        stage=$(json_field "$current" "stage")
+        echo "  Stage: $stage"
+        exit 0
+    fi
+
+    # Add to queue at initial stage
+    mkdir -p "$(dirname "$queue_file")"
+    local timestamp initial_stage
+    timestamp=$(date -u +"%Y-%m-%dT%H:%M:%S")
+    initial_stage=$(agent_initial_stage)
+    echo "{\"task\":\"$taskname\",\"added\":\"$timestamp\",\"stage\":\"$initial_stage\",\"status\":\"pending\"}" >> "$queue_file"
+
+    echo -e "${GREEN}✓${NC} Added '$taskname' (stage: $initial_stage)"
+}
+
+do_dequeue() {
+    local taskname="$1"
+    local queue_file
+    queue_file=$(get_queue_file)
+
+    if [ -z "$taskname" ]; then
+        echo -e "${RED}Error: Task name required${NC}"
+        echo "Usage: metagent dequeue <taskname>"
+        exit 1
+    fi
+
+    if [ ! -f "$queue_file" ]; then
+        echo -e "${YELLOW}No tasks${NC}"
+        exit 0
+    fi
+
+    if ! grep -q "\"task\":\"$taskname\"" "$queue_file"; then
+        echo -e "${YELLOW}Task '$taskname' not found${NC}"
+        exit 0
+    fi
+
+    # Remove from queue
+    local temp_file="${queue_file}.tmp"
+    grep -v "\"task\":\"$taskname\"" "$queue_file" > "$temp_file" || true
+    mv "$temp_file" "$queue_file"
+
+    # Remove empty file
+    if [ ! -s "$queue_file" ]; then
+        rm -f "$queue_file"
+    fi
+
+    echo -e "${GREEN}✓${NC} Removed '$taskname'"
+}
+
+update_task_field() {
+    local taskname="$1"
+    local field="$2"
+    local value="$3"
+    local queue_file
+    queue_file=$(get_queue_file)
+
+    if [ ! -f "$queue_file" ]; then
+        return
+    fi
+
+    local temp_file="${queue_file}.tmp"
+    while IFS= read -r line; do
+        if echo "$line" | grep -q "\"task\":\"$taskname\""; then
+            echo "$line" | sed "s/\"$field\":\"[^\"]*\"/\"$field\":\"$value\"/"
+        else
+            echo "$line"
+        fi
+    done < "$queue_file" > "$temp_file"
+    mv "$temp_file" "$queue_file"
+}
+
+# ============================================================================
+# Task Command - Create a new task (called by model during spec phase)
+# ============================================================================
+
+do_task() {
+    local taskname="$1"
+
+    if [ -z "$taskname" ]; then
+        echo -e "${RED}Error: Task name required${NC}"
+        echo "Usage: metagent task <taskname>"
+        exit 1
+    fi
+
+    local task_dir=".agents/$AGENT/tasks/${taskname}"
+    local queue_file
+    queue_file=$(get_queue_file)
+
+    # Check if task already exists in queue
+    if [ -f "$queue_file" ] && grep -q "\"task\":\"$taskname\"" "$queue_file"; then
+        echo -e "${GREEN}Task '$taskname' already exists${NC}"
+        local current
+        current=$(grep "\"task\":\"$taskname\"" "$queue_file")
+        local stage
+        stage=$(json_field "$current" "stage")
+        echo "  Stage: $stage"
+        echo "  Directory: $task_dir"
+        exit 0
+    fi
+
+    # Create agent-specific directory structure (calls agent_create_task from agent.sh)
+    agent_create_task "$taskname" "$task_dir"
+
+    # Add to queue
+    mkdir -p "$(dirname "$queue_file")"
+    local timestamp initial_stage
+    timestamp=$(date -u +"%Y-%m-%dT%H:%M:%S")
+    initial_stage=$(agent_initial_stage)
+    echo "{\"task\":\"$taskname\",\"added\":\"$timestamp\",\"stage\":\"$initial_stage\",\"status\":\"pending\"}" >> "$queue_file"
+
+    echo -e "${GREEN}✓ Created task: ${taskname}${NC}"
+    echo ""
+    echo "  Directory: ${task_dir}"
+    echo "  Stage: $initial_stage"
+}
+
+# ============================================================================
+# Finish Command - Signal stage/task completion
+# ============================================================================
+
+do_finish() {
+    local stage="${1:-task}"
+    local override_next=""
+    shift || true
+
+    # Parse --next flag
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --next)
+                override_next="$2"
+                shift 2
+                ;;
+            *)
+                shift
+                ;;
+        esac
+    done
+
+    local queue_file
+    queue_file=$(get_queue_file)
+    local marker_file="${CLAUDE_DONE_MARKER:-}"
+    local task="${METAGENT_TASK:-}"
+
+    # Validate stage
+    local valid_stages
+    valid_stages=$(agent_valid_finish_stages)
+    local stage_valid=false
+    for s in $valid_stages; do
+        if [ "$s" = "$stage" ]; then
+            stage_valid=true
+            break
+        fi
+    done
+
+    if [ "$stage_valid" = false ]; then
+        echo -e "${RED}Unknown stage: $stage${NC}"
+        echo "Usage: metagent finish [$valid_stages] [--next <stage>]"
+        exit 1
+    fi
+
+    # Get next stage: use override if provided, otherwise ask agent
+    local next_stage=""
+    if [ -n "$override_next" ]; then
+        next_stage="$override_next"
+    elif [ "$stage" != "task" ]; then
+        next_stage=$(agent_next_stage "$stage")
+    fi
+    agent_finish_message "$stage"
+
+    # Update queue file if we have a task name and next stage
+    if [ -n "$task" ] && [ -n "$next_stage" ] && [ -f "$queue_file" ]; then
+        local temp_file="${queue_file}.tmp"
+        while IFS= read -r line; do
+            if echo "$line" | grep -q "\"task\":\"$task\""; then
+                # Update stage and reset status to pending
+                echo "$line" | sed "s/\"stage\":\"[^\"]*\"/\"stage\":\"$next_stage\"/" | sed "s/\"status\":\"[^\"]*\"/\"status\":\"pending\"/"
+            else
+                echo "$line"
+            fi
+        done < "$queue_file" > "$temp_file"
+        mv "$temp_file" "$queue_file"
+        echo "Advanced '$task' to stage: $next_stage"
+    fi
+
+    # Signal orchestrator if running under metagent start
+    if [ -n "$marker_file" ]; then
+        echo "$stage" > "$marker_file"
+    else
+        # Running manually - just print next steps
+        echo ""
+        if [ -n "$next_stage" ]; then
+            echo "Next: Run 'metagent start' to continue, or manually run the $next_stage phase."
+        else
+            echo "Run 'metagent start' to continue with remaining tasks."
+        fi
+    fi
+}
+
+# ============================================================================
+# Start Command - Interactive task creation and orchestration
+# ============================================================================
+
+do_start() {
+    local queue_file
+    queue_file=$(get_queue_file)
+    local marker_file="/tmp/.metagent-done-$$"
+    local metagent_dir="$HOME/.metagent/$AGENT"
+    local initial_stage
+    initial_stage=$(agent_initial_stage)
+    local initial_prompt
+    initial_prompt=$(agent_prompt_for_stage "$initial_stage" "")
+
+    # Verify metagent is linked
+    if [ ! -f "$initial_prompt" ]; then
+        echo -e "${RED}Error: metagent not linked. Run 'metagent link' first.${NC}"
+        exit 1
+    fi
+
+    # Setup environment for metagent finish
+    export CLAUDE_DONE_MARKER="$marker_file"
+    export METAGENT_AGENT="$AGENT"
+
+    cleanup() {
+        rm -f "$marker_file"
+        # Kill claude if still running
+        if [ -n "$CLAUDE_PID" ] && kill -0 "$CLAUDE_PID" 2>/dev/null; then
+            kill "$CLAUDE_PID" 2>/dev/null
+            wait "$CLAUDE_PID" 2>/dev/null
+        fi
+    }
+    trap cleanup EXIT
+
+    echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "${BLUE}Starting new task...${NC}"
+    echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo ""
+
+    # Get the stages that need orchestration (before ready)
+    local stages
+    stages=$(agent_stages)
+    local orchestrated_stages=""
+    for s in $stages; do
+        if [ "$s" = "ready" ] || [ "$s" = "completed" ]; then
+            break
+        fi
+        orchestrated_stages="$orchestrated_stages $s"
+    done
+
+    # Main loop - keeps running until all stages complete
+    while true; do
+        rm -f "$marker_file"
+
+        local taskname=""
+        local stage=""
+        local prompt_file=""
+
+        if [ -f "$queue_file" ]; then
+            # Find first pending task at an orchestrated stage
+            for s in $orchestrated_stages; do
+                local found_line
+                found_line=$(grep "\"stage\":\"$s\"" "$queue_file" 2>/dev/null | grep "\"status\":\"pending\"" | head -1 || true)
+                if [ -n "$found_line" ]; then
+                    taskname=$(json_field "$found_line" "task")
+                    stage="$s"
+                    break
+                fi
+            done
+        fi
+
+        if [ -z "$taskname" ]; then
+            # Check if we have tasks at ready stage
+            local ready_tasks
+            ready_tasks=$(grep "\"stage\":\"ready\"" "$queue_file" 2>/dev/null | grep "\"status\":\"pending\"" | head -1 || true)
+            if [ -n "$ready_tasks" ]; then
+                # Tasks are ready for build - stop here
+                echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+                echo -e "${GREEN}Planning complete!${NC}"
+                echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+                echo ""
+                echo "Tasks ready for build:"
+                grep "\"stage\":\"ready\"" "$queue_file" | while IFS= read -r line; do
+                    local task
+                    task=$(json_field "$line" "task")
+                    echo "  - $task"
+                done
+                echo ""
+                echo "Run 'metagent run-queue' or 'metagent run <taskname>' to start."
+                exit 0
+            fi
+
+            # No pending tasks at all - start with initial stage interview
+            stage="interview"
+            prompt_file="$initial_prompt"
+            echo -e "${CYAN}Starting $(agent_stage_label "$initial_stage") interview...${NC}"
+            echo ""
+        else
+            # Run the pending task's stage
+            prompt_file=$(agent_prompt_for_stage "$stage" "$taskname")
+            export METAGENT_TASK="$taskname"
+            update_task_field "$taskname" "status" "running"
+
+            echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+            echo -e "${BLUE}Task: ${taskname} | Stage: ${stage}${NC}"
+            echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+            echo ""
+        fi
+
+        if [ ! -f "$prompt_file" ]; then
+            echo -e "${RED}Error: Prompt file not found: ${prompt_file}${NC}"
+            exit 1
+        fi
+
+        # Run claude in background
+        if [ "$stage" = "interview" ]; then
+            cat "$prompt_file" | claude --dangerously-skip-permissions &
+        else
+            (echo "Task: $taskname"; echo ""; cat "$prompt_file") | claude --dangerously-skip-permissions &
+        fi
+        CLAUDE_PID=$!
+
+        # Monitor for marker file or claude exit
+        while kill -0 "$CLAUDE_PID" 2>/dev/null; do
+            if [ -f "$marker_file" ]; then
+                local marker_content
+                marker_content=$(cat "$marker_file")
+                rm -f "$marker_file"
+
+                echo ""
+                local next_stage
+                next_stage=$(agent_next_stage "$marker_content")
+
+                if [ "$next_stage" = "ready" ]; then
+                    # Last orchestrated stage complete - let user review
+                    echo -e "${GREEN}✓${NC} $(agent_stage_label "$marker_content") phase complete"
+                    echo ""
+                    echo -e "${CYAN}Review with Claude. Exit when ready.${NC}"
+                    wait "$CLAUDE_PID" 2>/dev/null
+
+                    echo ""
+                    echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+                    echo -e "${GREEN}Planning complete!${NC}"
+                    echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+                    echo ""
+                    echo "Task '$taskname' is ready."
+                    echo ""
+                    echo "Run 'metagent run $taskname' or 'metagent run-queue' to start."
+                    exit 0
+                else
+                    # More orchestrated stages - continue
+                    echo -e "${GREEN}✓${NC} $(agent_stage_label "$marker_content") phase complete"
+                    kill "$CLAUDE_PID" 2>/dev/null
+                    wait "$CLAUDE_PID" 2>/dev/null
+                    echo ""
+                    sleep 1
+                    break
+                fi
+            fi
+            sleep 0.5
+        done
+
+        # Check if we broke out due to stage completion (need to continue loop)
+        if [ "$stage" = "interview" ] && [ -f "$queue_file" ]; then
+            continue
+        elif [ -n "$stage" ] && [ "$stage" != "interview" ]; then
+            local next
+            next=$(agent_next_stage "$stage")
+            if [ -n "$next" ] && [ "$next" != "ready" ]; then
+                continue
+            fi
+        fi
+
+        # Claude exited without marker - unexpected
+        wait "$CLAUDE_PID" 2>/dev/null
+
+        if [ -n "$taskname" ]; then
+            update_task_field "$taskname" "status" "failed"
+            echo ""
+            echo -e "${RED}✗${NC} Task '$taskname' exited without completing stage: $stage"
+        else
+            echo ""
+            echo -e "${RED}✗${NC} Interview ended without creating a task"
+        fi
+        exit 1
+    done
+}
+
+run_stage() {
+    local taskname="$1"
+    local stage="$2"
+    local prompt_file
+    prompt_file=$(agent_prompt_for_stage "$stage" "$taskname")
+
+    if [ ! -f "$prompt_file" ]; then
+        echo -e "${RED}Error: Prompt file not found: ${prompt_file}${NC}"
+        return 1
+    fi
+
+    # Setup environment for metagent finish
+    local marker_file="/tmp/.metagent-done-$$"
+    export CLAUDE_DONE_MARKER="$marker_file"
+    export METAGENT_TASK="$taskname"
+    export METAGENT_AGENT="$AGENT"
+    rm -f "$marker_file"
+
+    # Run Claude with the prompt
+    local initial_stage
+    initial_stage=$(agent_initial_stage)
+    if [ "$stage" = "$initial_stage" ] || [ "$stage" = "planning" ]; then
+        echo -e "${CYAN}Task: ${taskname}${NC}"
+        echo ""
+        (echo "Task: $taskname"; echo ""; cat "$prompt_file") | claude --dangerously-skip-permissions
+    else
+        cat "$prompt_file" | claude --dangerously-skip-permissions
+    fi
+    local exit_code=$?
+
+    # Check if metagent finish was called
+    if [ -f "$marker_file" ]; then
+        local marker_content
+        marker_content=$(cat "$marker_file")
+        rm -f "$marker_file"
+
+        local next_stage
+        next_stage=$(agent_next_stage "$marker_content")
+        if [ -n "$next_stage" ] && [ "$next_stage" != "completed" ]; then
+            return 0  # Stage complete
+        fi
+        if [ "$marker_content" = "task" ]; then
+            return 2  # Task complete but more work to do
+        fi
+    fi
+
+    # Claude exited without calling metagent finish
+    if [ "$stage" = "ready" ]; then
+        return 0  # All tasks complete
+    else
+        return $exit_code
+    fi
+}
+
+do_run_queue() {
+    local queue_file
+    queue_file=$(get_queue_file)
+
+    if [ ! -f "$queue_file" ]; then
+        echo -e "${YELLOW}No tasks${NC}"
+        exit 0
+    fi
+
+    echo -e "${BLUE}Processing tasks...${NC}"
+    echo ""
+
+    # Get stages from agent
+    local stages
+    stages=$(agent_stages)
+
+    # Keep processing until no pending tasks remain
+    while true; do
+        if [ ! -f "$queue_file" ]; then
+            break
+        fi
+
+        # Find first pending task
+        local taskname=""
+        local stage=""
+        local found_line=""
+
+        for s in $stages; do
+            if [ "$s" = "completed" ]; then
+                continue
+            fi
+            found_line=$(grep "\"stage\":\"$s\"" "$queue_file" 2>/dev/null | grep "\"status\":\"pending\"" | head -1 || true)
+            if [ -n "$found_line" ]; then
+                taskname=$(json_field "$found_line" "task")
+                stage="$s"
+                break
+            fi
+        done
+
+        # No pending tasks
+        if [ -z "$taskname" ]; then
+            break
+        fi
+
+        echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+        echo -e "${BLUE}Task: ${taskname} | Stage: ${stage}${NC}"
+        echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+        echo ""
+
+        update_task_field "$taskname" "status" "running"
+
+        run_stage "$taskname" "$stage"
+        local result=$?
+
+        if [ $result -eq 0 ]; then
+            echo ""
+            echo -e "${GREEN}✓${NC} '$taskname' stage complete"
+        elif [ $result -eq 2 ]; then
+            echo ""
+            echo -e "${CYAN}↻${NC} '$taskname' continuing..."
+        else
+            update_task_field "$taskname" "status" "failed"
+            echo ""
+            echo -e "${RED}✗${NC} '$taskname' failed at stage: $stage"
+        fi
+
+        echo ""
+    done
+
+    echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "${GREEN}Queue processing complete!${NC}"
+    echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+}
+
+# ============================================================================
+# Run Command
+# ============================================================================
+
+do_run() {
+    local taskname="$1"
+
+    if [ -z "$taskname" ]; then
+        echo -e "${RED}Error: Task name required${NC}"
+        echo "Usage: metagent run <taskname>"
+        exit 1
+    fi
+
+    local task_dir=".agents/$AGENT/tasks/${taskname}"
+    local prompt_file
+    prompt_file=$(agent_prompt_for_stage "ready" "$taskname")
+
+    if [ ! -f "$prompt_file" ]; then
+        echo -e "${RED}Error: Prompt file not found: ${prompt_file}${NC}"
+        echo "Run 'metagent task ${taskname}' first to create the task."
+        exit 1
+    fi
+
+    # Marker file for metagent finish to signal task completion
+    local marker_file="/tmp/.metagent-done-$$"
+    export CLAUDE_DONE_MARKER="$marker_file"
+    export METAGENT_AGENT="$AGENT"
+
+    cleanup() {
+        rm -f "$marker_file"
+    }
+    trap cleanup EXIT
+
+    echo -e "${BLUE}Starting loop for: ${taskname}${NC}"
+    echo -e "${YELLOW}Press Ctrl+C to stop${NC}"
+    echo ""
+
+    local loop_count=0
+    while true; do
+        loop_count=$((loop_count + 1))
+        rm -f "$marker_file"
+
+        echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+        echo -e "${BLUE}Loop #${loop_count} - $(date '+%Y-%m-%d %H:%M:%S')${NC}"
+        echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+        echo ""
+
+        cat "$prompt_file" | claude --dangerously-skip-permissions
+        local exit_code=$?
+
+        if [ -f "$marker_file" ]; then
+            echo ""
+            echo -e "${GREEN}Task completed, restarting for next task...${NC}"
+            echo ""
+            sleep 2
+            continue
+        fi
+
+        echo ""
+        echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+        echo -e "${GREEN}All tasks complete! Exiting loop.${NC}"
+        echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+        exit 0
+    done
 }
 
 do_unlink() {
     local bin_dir="$HOME/.local/bin"
     local metagent_dir="$HOME/.metagent"
     local claude_commands="$HOME/.claude/commands"
-    local codex_commands="$HOME/.codex/commands"
+    local codex_commands="$HOME/.codex/prompts"
 
     # Remove metagent from PATH
     if [ -L "$bin_dir/metagent" ]; then
@@ -436,11 +899,16 @@ do_unlink() {
         echo -e "${GREEN}✓${NC} Removed $bin_dir/metagent"
     fi
 
-    # Remove slash commands from both Claude and Codex
+    # Remove all slash commands (handled by agents)
     for commands_dir in "$claude_commands" "$codex_commands"; do
-        for cmd in bootstrap.md spec.md planner.md debug.md; do
-            if [ -L "$commands_dir/$cmd" ]; then
-                rm "$commands_dir/$cmd"
+        # Find and remove all symlinks pointing to metagent
+        for link in "$commands_dir"/*.md; do
+            if [ -L "$link" ]; then
+                local target
+                target=$(readlink "$link")
+                if [[ "$target" == *".metagent"* ]]; then
+                    rm "$link"
+                fi
             fi
         done
     done
@@ -466,75 +934,80 @@ if [ $# -eq 0 ]; then
     exit 0
 fi
 
-# Get command
-COMMAND="$1"
-shift
-
-# Handle global options before command
-case "$COMMAND" in
-    -h|--help)
-        show_help
-        exit 0
-        ;;
-    -l|--list)
-        list_agents
-        exit 0
-        ;;
-    --tracked)
-        list_tracked
-        exit 0
-        ;;
-esac
-
-# Parse command-specific options
-TARGET_REPO=""
-SYNC_ALL=false
-
+# Parse global options first (before command)
 while [[ $# -gt 0 ]]; do
     case $1 in
-        -a|--agent)
+        --agent)
+            if [ -z "$2" ] || [[ "$2" == -* ]]; then
+                echo -e "${RED}Error: --agent requires a value (code, writer)${NC}"
+                exit 1
+            fi
             AGENT="$2"
             shift 2
-            ;;
-        -l|--list)
-            list_agents
-            exit 0
-            ;;
-        --tracked)
-            list_tracked
-            exit 0
-            ;;
-        --all)
-            SYNC_ALL=true
-            shift
-            ;;
-        --dry-run)
-            DRY_RUN=true
-            shift
             ;;
         -h|--help)
             show_help
             exit 0
             ;;
         -*)
-            echo -e "${RED}Error: Unknown option $1${NC}"
-            show_help
-            exit 1
+            break
             ;;
         *)
-            TARGET_REPO="$1"
-            shift
+            break
             ;;
     esac
 done
 
-# Execute command
+# Validate agent exists
+if [ ! -f "$SCRIPT_DIR/$AGENT/agent.sh" ]; then
+    echo -e "${RED}Error: Unknown agent type '$AGENT'.${NC}"
+    echo "Available agents:"
+    for d in "$SCRIPT_DIR"/*/; do
+        if [ -f "$d/agent.sh" ]; then
+            echo "  - $(basename "$d")"
+        fi
+    done
+    exit 1
+fi
+
+# Load agent-specific functions
+load_agent
+
+# No command after options - show help
+if [ $# -eq 0 ]; then
+    show_help
+    exit 0
+fi
+
+# Get command
+COMMAND="$1"
+shift
+
+# Execute command (pass all remaining args to the handler)
 case "$COMMAND" in
     install|i)
-        do_install "$TARGET_REPO"
+        do_install "$@"
         ;;
-    sync|s)
-        do_sync "$TARGET_REPO" "$SYNC_ALL"
+    start)
+        do_start
+        ;;
+    task|t)
+        do_task "$@"
+        ;;
+    finish|f)
+        do_finish "$@"
+        ;;
+    run|r)
+        do_run "$@"
+        ;;
+    queue|q)
+        do_queue "$@"
+        ;;
+    dequeue)
+        do_dequeue "$@"
+        ;;
+    run-queue|rq)
+        do_run_queue
         ;;
     link)
         do_link

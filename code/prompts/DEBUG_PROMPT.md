@@ -462,10 +462,10 @@ Bug Reported
 find .agents/code/tasks -name "*.md" -path "*/issues/*" | head -20
 
 # Search for specific bug
-grep -r "BUG:" .agents/code/tasks/*/plan.md
+rg "BUG:" .agents/code/tasks/*/plan.md
 
 # Count open issues
-grep -c "OPEN" .agents/code/issues.md
+rg -c "OPEN" .agents/code/issues.md
 
 # Run specific failing test
 {TEST_COMMAND} --filter {test_name}

@@ -1,4 +1,4 @@
-# RALPH REFRESH - Regenerate Stale Plans
+# REFRESH - Regenerate Stale Plans
 
 ## Purpose
 
@@ -307,7 +307,7 @@ Previous plan archived at:
   .agents/code/tasks/{taskname}/plan_archive_{date}.md
 
 Resume build loop:
-  while :; do cat .agents/code/tasks/{taskname}/PROMPT.md | claude-code; done
+  metagent run {taskname}
 ```
 
 ---

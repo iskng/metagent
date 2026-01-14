@@ -29,7 +29,7 @@ Required files:
 - `.agents/code/SPEC.md`
 - `.agents/code/SPEC_PROMPT.md`
 - `.agents/code/PLANNING_PROMPT.md`
-- `.agents/code/scripts/spec.sh`
+- `metagent task` command available
 
 If missing, inform user to copy templates first.
 
@@ -96,7 +96,7 @@ Extract:
 ### 2.4 Analyze Directory Structure
 
 ```bash
-find . -type d -maxdepth 3 | grep -v node_modules | grep -v .git | grep -v __pycache__ | grep -v .build
+fd -t d -d 3 -E node_modules -E .git -E __pycache__ -E .build
 ```
 
 Note:
@@ -281,7 +281,7 @@ Based on detected stack, determine the actual commands.
 
 ```bash
 # Read package.json scripts
-cat package.json | grep -A 50 '"scripts"'
+rg -A 50 '"scripts"' package.json
 ```
 
 Map to:
@@ -322,7 +322,7 @@ Map to:
 ```bash
 # Check for pytest vs unittest
 ls pytest.ini pyproject.toml 2>/dev/null | head -1
-grep -l "pytest" pyproject.toml 2>/dev/null
+rg -l "pytest" pyproject.toml 2>/dev/null
 ```
 
 | Need | Pytest | Unittest |
@@ -388,7 +388,7 @@ Note from existing files:
 Find patterns:
 ```bash
 # Examples of what to search
-grep -rn "throw\|raise\|Error\|Exception\|Result<\|unwrap\|expect" src/ | head -20
+rg -n "throw|raise|Error|Exception|Result<|unwrap|expect" src/ | head -20
 ```
 
 Note the project's error handling style.
@@ -527,16 +527,10 @@ If a command fails:
 
 ## PHASE 10: VERIFY SCRIPTS
 
-Test that spec.sh works:
+Verify metagent is available:
 
 ```bash
-# Test the script (don't actually create)
-.agents/code/scripts/spec.sh --help 2>&1 || .agents/code/scripts/spec.sh 2>&1 | head -10
-```
-
-Ensure it's executable:
-```bash
-chmod +x .agents/code/scripts/spec.sh
+metagent --help
 ```
 
 ---
@@ -573,8 +567,8 @@ Output summary:
 ║ Ready to use!                                                ║
 ║                                                              ║
 ║ Start a task:                                                ║
-║   .agents/code/scripts/spec.sh my-feature                    ║
-║   cat .agents/code/SPEC_PROMPT.md | claude-code              ║
+║   metagent task my-feature                                   ║
+║   cat .agents/code/SPEC_PROMPT.md | claude --dangerously-skip-permissions              ║
 ╚══════════════════════════════════════════════════════════════╝
 ```
 

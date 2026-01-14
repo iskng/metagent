@@ -1,6 +1,6 @@
-# Metagent - Agent Workflow Distribution
+# Metagent - Agent Workflow Manager
 
-Distributable agent workflows for autonomous coding. Install into any repository and keep prompts in sync.
+Centralized agent workflows for autonomous coding and writing.
 
 ## Quick Start
 
@@ -8,31 +8,39 @@ Distributable agent workflows for autonomous coding. Install into any repository
 # First time setup
 ./metagent.sh link
 
-# Install to a repo
+# Install code agent to a repo
 cd ~/projects/my-app
 metagent install
-
-# Run bootstrap to configure
 /bootstrap
+
+# Or install writer agent
+cd ~/projects/my-book
+metagent --agent writer install
+/writer-init
 ```
+
+## Agent Types
+
+| Agent | Purpose | Workflow |
+|-------|---------|----------|
+| `code` (default) | Software development | spec → planning → build loop |
+| `writer` | Writing projects | init → planning → writing loop |
 
 ## Commands
 
 ```bash
-metagent link                # Setup globally (first time)
-metagent install [path]      # Install agent to repo
-metagent sync [path]         # Sync prompts to repo
-metagent unlink              # Remove metagent
-```
+metagent [--agent TYPE] <command> [args]
 
-### Options
-
-```bash
-metagent install -a code           # Specify agent (default: code)
-metagent sync --all                # Sync all tracked repos
-metagent sync --dry-run            # Preview changes
-metagent --list                    # List available agents
-metagent --tracked                 # List tracked repos
+metagent link              # Setup globally (first time)
+metagent install [path]    # Install agent to repo
+metagent start             # Start new task interactively
+metagent task <name>       # Create task (used by model)
+metagent finish <stage>    # Signal stage completion
+metagent run <name>        # Run loop
+metagent queue             # Show task queue
+metagent dequeue <name>    # Remove from queue
+metagent run-queue         # Process all queued tasks
+metagent unlink            # Remove metagent
 ```
 
 ## What Gets Installed
@@ -41,82 +49,79 @@ metagent --tracked                 # List tracked repos
 
 ```
 ~/.local/bin/metagent              # CLI tool
-~/.metagent/                       # Global prompts
+~/.metagent/
+  ├── code/                        # Code agent prompts
+  │   ├── BOOTSTRAP_PROMPT.md
+  │   ├── SPEC_PROMPT.md
+  │   ├── PLANNING_PROMPT.md
+  │   └── DEBUG_PROMPT.md
+  └── writer/                      # Writer agent prompts
+      ├── INIT_PROMPT.md
+      ├── PLANNING_PROMPT.md
+      └── PROMPT.md
 ~/.claude/commands/                # Slash commands
-  ├── bootstrap.md -> ~/.metagent/BOOTSTRAP_PROMPT.md
-  ├── spec.md -> ~/.metagent/SPEC_PROMPT.md
-  ├── planner.md -> ~/.metagent/PLANNING_PROMPT.md
-  └── debug.md -> ~/.metagent/DEBUG_PROMPT.md
+  ├── bootstrap.md                 # /bootstrap (code)
+  ├── spec.md                      # /spec (code)
+  ├── planner.md                   # /planner (code)
+  ├── debug.md                     # /debug (code)
+  ├── writer-init.md               # /writer-init
+  ├── writer-plan.md               # /writer-plan
+  └── writer.md                    # /writer
 ```
 
-### Per-repo (`metagent install`)
+### Per-repo: Code Agent (`metagent install`)
 
 ```
 your-repo/.agents/code/
-├── SPEC.md                        # Project specification (generated)
-├── AGENTS.md                      # Build commands (configured)
-├── TECHNICAL_STANDARDS.md         # Coding patterns (configured)
-├── issues.md                      # Outstanding bugs log
-├── BOOTSTRAP_PROMPT.md
-├── SPEC_PROMPT.md
-├── PLANNING_PROMPT.md
-├── DEBUG_PROMPT.md
-├── README.md
-├── RECOVERY_PROMPT.md
-├── REFRESH_PROMPT.md
-├── scripts/
-│   └── spec.sh
-└── tasks/
-    └── {taskname}/
-        ├── spec/                  # Specifications
-        ├── plan.md                # Implementation plan
-        ├── PROMPT.md              # Build loop prompt
-        └── issues/                # Task-specific bugs
-            └── {taskname}-{bug-title}.md
+├── SPEC.md                        # Project specification
+├── AGENTS.md                      # Build commands
+├── TECHNICAL_STANDARDS.md         # Coding patterns
+├── queue.jsonl                    # Task queue
+└── tasks/{taskname}/
+    ├── spec/                      # Specifications
+    ├── plan.md                    # Implementation plan
+    └── PROMPT.md                  # Build loop prompt
 ```
 
-## Workflow
+### Per-repo: Writer Agent (`metagent --agent writer install`)
+
+```
+your-repo/.agents/writer/
+├── WRITER.md                      # Writing config
+├── queue.jsonl                    # Task queue
+└── tasks/{projectname}/
+    ├── content/                   # Written content
+    ├── outline/                   # Structure
+    ├── style/                     # Voice, terminology
+    ├── research/                  # Research notes
+    └── editorial_plan.md          # Task list
+```
+
+## Workflows
+
+### Code Agent
 
 ```
 1. /bootstrap              # Configure for your project (once)
-2. /spec my-feature        # Specify what to build
-3. /planner my-feature        # Plan the implementation
-4. Build loop              # Execute the plan
-5. /debug                  # When bugs are found (creates issues/, updates plan)
+2. metagent start          # Interview → spec → planning
+3. metagent run <task>     # Execute the plan
+4. /debug                  # When bugs are found
 ```
 
-Build loop:
-```bash
-while :; do cat .agents/code/tasks/my-feature/PROMPT.md | claude-code; done
-```
-
-When a bug is encountered:
-- `/debug` identifies the related task/spec
-- Creates `issues/{taskname}-{bug-title}.md` with full bug documentation
-- Updates `issues.md` with outstanding bugs log
-- Writes failing test to confirm the bug
-- Tracks fix progress in the issue file
-
-## Syncing Updates
-
-When you update prompts in metagent:
-
-```bash
-metagent sync --all      # Update all tracked repos
-```
-
-Only generic files (prompts/, scripts/) are synced. Project-specific files (SPEC.md, AGENTS.md, TECHNICAL_STANDARDS.md, tasks/) are never overwritten.
-
-## Adding New Agents
-
-Create a directory with this structure:
+### Writer Agent
 
 ```
-metagent/
-└── my-agent/
-    ├── prompts/        # Generic prompts (synced)
-    ├── scripts/        # Generic scripts (synced)
-    └── templates/      # Project-specific templates (install only)
+1. metagent --agent writer install
+2. /writer-init            # Interview → project setup
+3. /writer-plan            # Plan section (research + page breakdown)
+4. /writer                 # Write one page per loop
 ```
 
-Then: `metagent install -a my-agent`
+## Architecture
+
+Prompts are centralized in `~/.metagent/`:
+- Update once, all repos use the latest
+- No sync needed
+- Repos only contain project-specific files
+
+Per-task files (PROMPT.md, editorial_plan.md) live in the repo since they contain task-specific content.

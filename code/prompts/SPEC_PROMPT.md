@@ -1,12 +1,12 @@
-# RALPH SPEC PHASE - Specification Development
+# SPEC PHASE - Specification Development
 
 ## Purpose
 
 This prompt facilitates the **Specification Phase** - the first phase of the Ralph workflow.
 
 Your role:
-1. **Bootstrap** - Create the task directory structure via script
-2. **Interview** - Gather requirements through structured conversation
+1. **Interview** - Gather requirements through structured conversation
+2. **Create Task** - Once requirements are clear, create the task via metagent task
 3. **Explore** - Research the existing codebase using subagents
 4. **Specify** - Author detailed specifications in the task's spec/ directory
 
@@ -16,18 +16,28 @@ Your role:
 
 ## PHASE ENTRY
 
-When this prompt is invoked, first ask:
+### If task name is already provided (e.g., "Task: auth-system"):
 
-> "What task are you working on? Give me a short name (e.g., 'auth-system', 'api-endpoints', 'payment-integration')"
+The task already exists. Skip to CONTEXT LOADING and continue with specification work.
 
-Once you have the task name:
+### If no task name is provided (fresh start):
 
-1. **Run the bootstrap script:**
-   ```bash
-   .agents/code/scripts/spec.sh {taskname}
-   ```
+Start by understanding what the user wants to build:
 
-2. **Confirm creation** and proceed to requirements gathering
+> "What would you like to build? Describe the feature or functionality you have in mind."
+
+Conduct the requirements interview (PART 1 below) FIRST. Once you understand:
+- The problem being solved
+- The scope and boundaries
+- Key requirements and constraints
+
+THEN create the task:
+
+```bash
+metagent task {taskname}
+```
+
+Choose a concise, descriptive task name based on what you learned (e.g., 'auth-system', 'api-caching', 'user-onboarding').
 
 ---
 
@@ -389,6 +399,16 @@ Files created:
 Key decisions:
   1. {Decision}: {rationale}
 ```
+
+### 4.2 Signal Completion
+
+After specs are complete and validated, run:
+
+```bash
+metagent finish spec
+```
+
+This advances the task to the planning phase.
 
 ---
 

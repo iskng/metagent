@@ -1,4 +1,4 @@
-# RALPH RECOVERY - When Things Go Wrong
+# RECOVERY - When Things Go Wrong
 
 ## Purpose
 
@@ -162,8 +162,8 @@ Option C - Spec is wrong:
 **Diagnosis:**
 ```bash
 # Find duplicates
-grep -rn "function_name" src/
-grep -rn "similar_pattern" src/
+rg -n "function_name" src/
+rg -n "similar_pattern" src/
 ```
 
 **Recovery:**
@@ -192,7 +192,7 @@ grep -rn "similar_pattern" src/
 **Diagnosis:**
 ```bash
 # Find placeholders
-grep -rn "TODO\|FIXME\|todo!\|unimplemented!\|NotImplementedError" src/
+rg -n "TODO|FIXME|todo!|unimplemented!|NotImplementedError" src/
 ```
 
 **Recovery:**
@@ -200,7 +200,7 @@ grep -rn "TODO\|FIXME\|todo!\|unimplemented!\|NotImplementedError" src/
 1. Add placeholder detection to CI:
    ```bash
    # Add to test script
-   if grep -rq "TODO\|todo!\|unimplemented!" src/; then
+   if rg -q "TODO|todo!|unimplemented!" src/; then
      echo "ERROR: Placeholders found"
      exit 1
    fi
@@ -280,7 +280,7 @@ grep -rn "TODO\|FIXME\|todo!\|unimplemented!\|NotImplementedError" src/
    mv plan.md plan_old.md
    
    # Regenerate
-   cat .agents/code/PLANNING_PROMPT.md | claude-code
+   cat .agents/code/PLANNING_PROMPT.md | claude --dangerously-skip-permissions
    ```
 
 ---
@@ -301,7 +301,7 @@ Add to validation chain:
 {TYPE_CHECK} || exit 1
 
 # Placeholder check
-grep -rq "TODO\|PLACEHOLDER\|unimplemented" src/ && exit 1
+rg -q "TODO|PLACEHOLDER|unimplemented" src/ && exit 1
 
 # Build
 {BUILD} || exit 1
@@ -336,7 +336,7 @@ When plan.md becomes cluttered:
 ```bash
 # Archive and regenerate
 mv plan.md plan_archive_$(date +%Y%m%d).md
-cat .agents/code/PLANNING_PROMPT.md | claude-code
+cat .agents/code/PLANNING_PROMPT.md | claude --dangerously-skip-permissions
 ```
 
 ---
@@ -390,10 +390,10 @@ git diff HEAD~5
 wc -l /tmp/errors.txt
 
 # Find placeholders
-grep -rn "TODO\|FIXME\|todo!\|unimplemented!" src/
+rg -n "TODO|FIXME|todo!|unimplemented!" src/
 
 # Find duplicates
-grep -rhn "^fn \|^def \|^function " src/ | sort | uniq -d
+rg -hn "^fn |^def |^function " src/ | sort | uniq -d
 ```
 
 ---
