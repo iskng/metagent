@@ -148,7 +148,7 @@ read_marker() {
 }
 
 escape_sed_replacement() {
-    printf '%s' "$1" | sed -e 's/[&|]/\\&/g'
+    printf '%s' "$1" | sed -e 's/[&|\\]/\\&/g'
 }
 
 render_prompt() {
@@ -156,10 +156,19 @@ render_prompt() {
     local taskname="$2"
     local repo_root
     repo_root=$(get_repo_root)
-    local repo_escaped task_escaped
+    local repo_escaped
     repo_escaped=$(escape_sed_replacement "$repo_root")
-    task_escaped=$(escape_sed_replacement "$taskname")
-    sed -E "s|{repo}|$repo_escaped|g; s|{task}|$task_escaped|g" "$prompt_file"
+    if [ -n "$taskname" ]; then
+        local task_escaped
+        task_escaped=$(escape_sed_replacement "$taskname")
+        sed -E \
+            -e "s|{repo}|$repo_escaped|g" \
+            -e "s|{taskname}|$task_escaped|g" \
+            -e "s|{task}|$task_escaped|g" \
+            "$prompt_file"
+    else
+        sed -E "s|{repo}|$repo_escaped|g" "$prompt_file"
+    fi
 }
 
 find_unique_task() {
@@ -346,6 +355,7 @@ do_install() {
         fi
 
         # Source agent to get slash command config
+        unset -f agent_slash_commands 2>/dev/null || true
         source "$agent_dir/agent.sh"
         if type agent_slash_commands &>/dev/null; then
             agent_slash_commands "$metagent_dir/$agent_name" "$claude_commands" "$codex_commands"
@@ -547,7 +557,6 @@ do_task() {
     local task_dir="$agent_root/tasks/${taskname}"
     local queue_file
     queue_file=$(get_queue_file)
-    local marker_file="$agent_root/.done_marker"
 
     # Check if task already exists in queue
     if [ -f "$queue_file" ] && grep -q "\"task\":\"$taskname\"" "$queue_file"; then
@@ -720,10 +729,18 @@ do_start() {
 
     cleanup() {
         rm -f "$marker_file"
-        # Kill claude if still running
+        # Kill claude if still running (use SIGINT for graceful exit)
         if [ -n "$CLAUDE_PID" ] && kill -0 "$CLAUDE_PID" 2>/dev/null; then
-            kill "$CLAUDE_PID" 2>/dev/null
+            kill -INT "$CLAUDE_PID" 2>/dev/null
             wait "$CLAUDE_PID" 2>/dev/null
+        fi
+        if [ -n "$taskname" ]; then
+            local task_line status
+            task_line=$(grep "\"task\":\"$taskname\"" "$queue_file" 2>/dev/null || true)
+            status=$(json_field "$task_line" "status")
+            if [ "$status" = "running" ]; then
+                update_task_field "$taskname" "status" "pending"
+            fi
         fi
     }
     trap cleanup EXIT
@@ -828,12 +845,16 @@ do_start() {
 
         rm -f "$marker_file"
 
-        # Run claude in background
+        # Build prompt and run claude interactively with prompt as argument
+        local prompt_text
         if [ "$stage" = "interview" ]; then
-            render_prompt "$prompt_file" "$taskname" | claude --dangerously-skip-permissions &
+            prompt_text="$(render_prompt "$prompt_file" "$taskname")"
         else
-            (echo "Task: $taskname"; echo ""; render_prompt "$prompt_file" "$taskname") | claude --dangerously-skip-permissions &
+            prompt_text="Task: $taskname
+
+$(render_prompt "$prompt_file" "$taskname")"
         fi
+        claude --dangerously-skip-permissions "$prompt_text" &
         CLAUDE_PID=$!
 
         # Monitor for marker file or claude exit
@@ -869,7 +890,7 @@ do_start() {
                 fi
 
                 echo -e "${GREEN}✓${NC} $(agent_stage_label "$marker_stage") phase complete"
-                kill "$CLAUDE_PID" 2>/dev/null
+                kill -INT "$CLAUDE_PID" 2>/dev/null
                 wait "$CLAUDE_PID" 2>/dev/null
                 echo ""
                 sleep 1
@@ -941,10 +962,14 @@ run_stage() {
     export METAGENT_AGENT="$AGENT"
     rm -f "$marker_file"
 
-    # Run Claude with the prompt
+    # Run Claude with the prompt as argument
     echo -e "${CYAN}Task: ${taskname}${NC}"
     echo ""
-    (echo "Task: $taskname"; echo ""; render_prompt "$prompt_file" "$taskname") | claude --dangerously-skip-permissions
+    local prompt_text
+    prompt_text="Task: $taskname
+
+$(render_prompt "$prompt_file" "$taskname")"
+    claude --dangerously-skip-permissions "$prompt_text"
     local exit_code=$?
 
     # Check if metagent finish was called
@@ -975,6 +1000,14 @@ do_run_queue() {
         echo -e "${YELLOW}No tasks${NC}"
         exit 0
     fi
+
+    local running_task=""
+    cleanup() {
+        if [ -n "$running_task" ]; then
+            update_task_field "$running_task" "status" "pending"
+        fi
+    }
+    trap cleanup EXIT
 
     echo -e "${BLUE}Processing tasks...${NC}"
     echo ""
@@ -1016,6 +1049,7 @@ do_run_queue() {
         echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
         echo ""
 
+        running_task="$taskname"
         update_task_field "$taskname" "status" "running"
 
         run_stage "$taskname" "$stage"
@@ -1033,6 +1067,7 @@ do_run_queue() {
             echo -e "${RED}✗${NC} '$taskname' failed at stage: $stage"
         fi
 
+        running_task=""
         echo ""
     done
 
@@ -1057,6 +1092,7 @@ do_run() {
 
     local agent_root
     agent_root=$(get_agent_root)
+    local marker_file="$agent_root/.done_marker"
     local task_dir="$agent_root/tasks/${taskname}"
     local queue_file
     queue_file=$(get_queue_file)
@@ -1095,6 +1131,14 @@ do_run() {
 
     cleanup() {
         rm -f "$marker_file"
+        if [ -n "$taskname" ]; then
+            local task_line status
+            task_line=$(grep "\"task\":\"$taskname\"" "$queue_file" 2>/dev/null || true)
+            status=$(json_field "$task_line" "status")
+            if [ "$status" = "running" ]; then
+                update_task_field "$taskname" "status" "pending"
+            fi
+        fi
     }
     trap cleanup EXIT
 
@@ -1121,45 +1165,46 @@ do_run() {
         echo ""
 
         rm -f "$marker_file"
+        update_task_field "$taskname" "status" "running"
 
-        # Run claude in background so we can monitor for marker file
-        (echo "Task: $taskname"; echo ""; render_prompt "$prompt_file" "$taskname") | claude --dangerously-skip-permissions &
+        # Build prompt and pass as argument for interactive UI
+        local prompt_text
+        prompt_text="Task: $taskname
+
+$(render_prompt "$prompt_file" "$taskname")"
+
+        # Run claude interactively with prompt as argument
+        claude --dangerously-skip-permissions "$prompt_text" &
         local CLAUDE_PID=$!
 
-        # Monitor for marker file or claude exit
-        local marker_found=false
+        # Monitor for marker file, send SIGINT (ctrl-c) to claude when found
         while kill -0 "$CLAUDE_PID" 2>/dev/null; do
             if [ -f "$marker_file" ]; then
-                # Marker found - kill claude and continue loop
-                marker_found=true
-                kill "$CLAUDE_PID" 2>/dev/null
-                wait "$CLAUDE_PID" 2>/dev/null
-                rm -f "$marker_file"
-                echo ""
-                echo -e "${GREEN}Stage completed, continuing...${NC}"
-                echo ""
-                sleep 2
+                kill -INT "$CLAUDE_PID" 2>/dev/null
                 break
             fi
             sleep 0.5
         done
 
-        # Continue loop if marker was found
-        if [ "$marker_found" = true ]; then
-            continue
-        fi
+        wait "$CLAUDE_PID" 2>/dev/null || true
 
-        # Claude exited naturally - check if marker was written just before exit
+        # Check if marker was found
+        local marker_found=false
         if [ -f "$marker_file" ]; then
+            marker_found=true
             rm -f "$marker_file"
             echo ""
             echo -e "${GREEN}Stage completed, continuing...${NC}"
             echo ""
             sleep 2
+        fi
+
+        if [ "$marker_found" = true ]; then
             continue
         fi
 
         # No marker - claude exited without signaling, stop loop
+        update_task_field "$taskname" "status" "pending"
         echo ""
         echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
         echo -e "${GREEN}Session ended. Run 'metagent run $taskname' to continue.${NC}"
