@@ -1,11 +1,11 @@
 #!/bin/bash
 # Code agent - Software development workflow
 #
-# Stages: spec → planning → ready → completed
+# Stages: spec → planning → build → completed
 
 # Returns all stages in order
 agent_stages() {
-    echo "spec planning ready completed"
+    echo "spec planning build completed"
 }
 
 # Returns stages orchestrated by metagent start
@@ -15,7 +15,7 @@ agent_orchestrated_stages() {
 
 # Returns the stage where metagent start should hand off to run/run-queue
 agent_handoff_stage() {
-    echo "ready"
+    echo "build"
 }
 
 # Returns the initial stage for new tasks
@@ -28,8 +28,8 @@ agent_next_stage() {
     local stage="$1"
     case "$stage" in
         spec)     echo "planning" ;;
-        planning) echo "ready" ;;
-        ready)    echo "completed" ;;
+        planning) echo "build" ;;
+        build)    echo "completed" ;;
         task)     echo "completed" ;;
         *)        echo "" ;;
     esac
@@ -41,7 +41,7 @@ agent_stage_label() {
     case "$stage" in
         spec)      echo "Spec" ;;
         planning)  echo "Planning" ;;
-        ready)     echo "Ready" ;;
+        build)     echo "Build" ;;
         completed) echo "Completed" ;;
     esac
 }
@@ -56,7 +56,7 @@ agent_prompt_for_stage() {
     case "$stage" in
         spec)     echo "$metagent_dir/SPEC_PROMPT.md" ;;
         planning) echo "$metagent_dir/PLANNING_PROMPT.md" ;;
-        ready)    echo "$repo_root/.agents/code/tasks/$taskname/PROMPT.md" ;;
+        build)    echo "$repo_root/.agents/code/tasks/$taskname/PROMPT.md" ;;
     esac
 }
 
@@ -66,13 +66,14 @@ agent_finish_message() {
     case "$stage" in
         spec)     echo "Spec phase complete." ;;
         planning) echo "Planning phase complete." ;;
+        build)    echo "Build iteration complete." ;;
         task)     echo "Task complete." ;;
     esac
 }
 
 # Returns valid finish stages for this agent
 agent_valid_finish_stages() {
-    echo "spec planning task"
+    echo "spec planning build task"
 }
 
 # Creates the task directory structure
@@ -94,39 +95,34 @@ EOF
 
     # Create PROMPT.md (build loop prompt)
     cat > "${task_dir}/PROMPT.md" << EOF
-Study these files to understand the project and task:
+0a. Study all files in @.agents/code/tasks/${taskname}/spec/- Task specifications and architecture
+0b. Study @.agents/code/TECHNICAL_STANDARDS.md - Codebase patterns to follow
+0c. Study @.agents/code/tasks/${taskname}/plan.md - Current task list
+0d. Study @.agents/code/AGENTS.md - Build/test commands and learnings
 
-- @.agents/code/SPEC.md - Project specification
-- @.agents/code/AGENTS.md - Build commands and learnings
-- @.agents/code/TECHNICAL_STANDARDS.md - Coding patterns
-- @.agents/code/tasks/${taskname}/spec/*.md - Task specifications
-- @.agents/code/tasks/${taskname}/plan.md - Current task list
+1. Your task is to implement ${taskname} per the specifications. study @plan.md, choose the most important uncompleted items that you can accomplish in one pass (max 5), research using subagents before implementing (NEVER assume code doesn't exist), implement according to specifications.
 
----
+2. After implementing functionality or resolving problems, run the tests for that unit of code that was improved. If functionality is missing then it's your job to add it as per the application specifications.
 
-Implement ${taskname} per the specifications. Study plan.md and choose the most important task. Search codebase first (don't assume not implemented).
+3. When the tests pass update @plan.md, then add changed code and @plan.md with git add the relevant files you created/modified via bash then do git commit -m "feat(${taskname}): [descriptive message]"
 
-After implementing, run tests. If functionality is missing, add it per specifications.
+4. ALWAYS KEEP @plan.md up to date with your learnings about the task using a subagent. Especially after wrapping up/finishing your turn.
 
-When you discover issues, update plan.md immediately.
+5. When you learn something new about how to run the build/tests make sure you update @.agents/code/AGENT.md but keep it brief.
 
-When tests pass, commit: \`git add -A && git commit -m "description" && git push\`
 
----
-
-9. Keep plan.md up to date with learnings.
-
-99. Update AGENTS.md when you learn build/test commands.
-
-999. Single source of truth - no duplicates.
-
-9999. **FULL IMPLEMENTATIONS ONLY. NO PLACEHOLDERS.**
-
-99999. **ONE TASK PER SESSION.**
-
-999999. **WHEN DONE:** run \`cd "{repo}" && METAGENT_TASK="{task}" metagent --agent code finish\` to signal completion.
+999999. Important: We want single sources of truth, no migrations/adapters. If tests unrelated to your work fail then it's your job to resolve these tests as part of the increment of change.
+99999999. Important: When authoring tests capture the WHY - document importance in docstrings.
+999999999. IMPORTANT: When you discover a bug resolve it using subagents even if it is unrelated to the current piece of work after documenting it in @plan.md
+9999999999. You may add extra logging if required to be able to debug the issues.
+99999999999. When @plan.md becomes large periodically clean out the items that are completed from the file using a subagent.
+999999999999. If you find inconsistencies in the specs/* then use the oracle (think extra hard) and then update the specs.
+9999999999999. Allowed parallelism: Codebase search up to 50 subagents, file reading up to 50 subagents, file writing up to 10 subagents (independent files only), build/test 1 SUBAGENT ONLY, plan.md updates 1 subagent.
+99999999999999. FULL IMPLEMENTATIONS ONLY. NO PLACEHOLDERS. NO STUBS. NO TODO COMMENTS. DO NOT IMPLEMENT PLACEHOLDER OR SIMPLE IMPLEMENTATIONS. WE WANT FULL IMPLEMENTATIONS. DO IT OR I WILL YELL AT YOU
+999999999999999. SUPER IMPORTANT DO NOT IGNORE. DO NOT PLACE STATUS REPORT UPDATES INTO @.agents/code/AGENT.md
+9999999999999999. **WHEN ITEM DONE:** run \`cd "{repo}" && METAGENT_TASK="{task}" metagent --agent code finish --next build\` to signal iteration complete (more items remain).
+99999999999999999. **WHEN ALL ASPECTS OF THE PLAN.md ARE COMPLETE:** run a full \`cargo build\` to verify everything compiles, then run \`cd "{repo}" && METAGENT_TASK="{task}" metagent --agent code finish\` to signal task complete (all items done).
 EOF
-
     # Create spec README
     cat > "${task_dir}/spec/README.md" << EOF
 # Specifications for ${taskname}

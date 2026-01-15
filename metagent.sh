@@ -35,7 +35,20 @@ while [ -L "$SCRIPT_SOURCE" ]; do
     [[ $SCRIPT_SOURCE != /* ]] && SCRIPT_SOURCE="$SCRIPT_DIR/$SCRIPT_SOURCE"
 done
 SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_SOURCE")" && pwd)"
-AGENT="${METAGENT_AGENT:-code}"  # Default to code, can be overridden
+AGENT="${METAGENT_AGENT:-code}"    # Default to code, can be overridden
+MODEL="${METAGENT_MODEL:-claude}"  # Default to claude, can be overridden (claude or codex)
+
+# Get the CLI command with appropriate flags
+get_cli_cmd() {
+    case "$MODEL" in
+        codex)
+            echo "codex --dangerously-bypass-approvals-and-sandbox"
+            ;;
+        claude|*)
+            echo "claude --dangerously-skip-permissions"
+            ;;
+    esac
+}
 
 # ============================================================================
 # Helper Functions
@@ -45,7 +58,8 @@ show_help() {
     echo "metagent - Agent workflow manager"
     echo ""
     echo "Usage:"
-    echo "  metagent [--agent TYPE] <command> [args]"
+    echo "  metagent                            Start new task (interview → spec → planning)"
+    echo "  metagent [options] <command> [args]"
     echo ""
     echo "Agent Types:"
     echo "  code                 Software development (default)"
@@ -55,7 +69,6 @@ show_help() {
     echo "  install                     Setup globally (first time)"
     echo "  uninstall                   Remove metagent globally"
     echo "  init [path]                 Initialize agent in repo"
-    echo "  start                       Start new task interactively"
     echo "  task <taskname>             Create task directory and add to queue"
     echo "  finish <stage>              Signal stage completion"
     echo "  run <taskname>              Run loop for a task"
@@ -65,16 +78,22 @@ show_help() {
     echo ""
     echo "Options:"
     echo "  --agent TYPE        Select agent type (code, writer)"
+    echo "  --model TYPE        Select model CLI (claude, codex) [default: claude]"
     echo "  -h, --help          Show help"
+    echo ""
+    echo "Environment variables:"
+    echo "  METAGENT_MODEL      Model CLI to use (claude, codex)"
+    echo "  METAGENT_AGENT      Agent type to use (code, writer)"
     echo ""
     echo "Finish options:"
     echo "  --next STAGE        Override next stage"
     echo ""
     echo "Examples:"
+    echo "  metagent                             # Start new task interactively"
     echo "  metagent install                     # First time setup"
     echo "  metagent init                        # Initialize code agent in current dir"
     echo "  metagent --agent writer init         # Initialize writer agent"
-    echo "  metagent start                       # Start new task interactively"
+    echo "  metagent --model codex run my-task   # Run task with Codex"
     echo "  metagent task my-feature             # Create task (used by model)"
     echo "  metagent finish spec                 # Signal spec phase complete"
     echo "  metagent run my-feature              # Run loop for existing task"
@@ -390,7 +409,7 @@ do_install() {
 # Queue file format (JSON lines for easy parsing):
 # {"task":"name","added":"2024-01-13T10:30:00","stage":"spec","status":"pending"}
 #
-# Status values: pending, running, failed
+# Status values: pending, incomplete, running, failed, completed
 
 get_queue_file() {
     local agent_root
@@ -442,10 +461,12 @@ do_queue() {
                     status=$(json_field "$line" "status")
 
                     case "$status" in
-                        pending) echo -e "  ○ ${task}" ;;
-                        running) echo -e "  ${BLUE}●${NC} ${task} (running)" ;;
-                        failed)  echo -e "  ${RED}✗${NC} ${task} (failed)" ;;
-                        *)       echo -e "  ○ ${task}" ;;
+                        pending)    echo -e "  ○ ${task}" ;;
+                        incomplete) echo -e "  ${YELLOW}◐${NC} ${task} (incomplete)" ;;
+                        running)    echo -e "  ${BLUE}●${NC} ${task} (running)" ;;
+                        failed)     echo -e "  ${RED}✗${NC} ${task} (failed)" ;;
+                        completed)  echo -e "  ${GREEN}✓${NC} ${task}" ;;
+                        *)          echo -e "  ○ ${task}" ;;
                     esac
                 done
                 echo ""
@@ -682,10 +703,14 @@ do_finish() {
     # Update queue file if we have a task name and next stage
     if [ -n "$task" ] && [ -n "$next_stage" ] && [ -f "$queue_file" ]; then
         local temp_file="${queue_file}.tmp"
+        local new_status="pending"
+        if [ "$next_stage" = "completed" ]; then
+            new_status="completed"
+        fi
         while IFS= read -r line; do
             if echo "$line" | grep -q "\"task\":\"$task\""; then
-                # Update stage and reset status to pending
-                echo "$line" | sed "s/\"stage\":\"[^\"]*\"/\"stage\":\"$next_stage\"/" | sed "s/\"status\":\"[^\"]*\"/\"status\":\"pending\"/"
+                # Update stage and status
+                echo "$line" | sed "s/\"stage\":\"[^\"]*\"/\"stage\":\"$next_stage\"/" | sed "s/\"status\":\"[^\"]*\"/\"status\":\"$new_status\"/"
             else
                 echo "$line"
             fi
@@ -739,7 +764,7 @@ do_start() {
             task_line=$(grep "\"task\":\"$taskname\"" "$queue_file" 2>/dev/null || true)
             status=$(json_field "$task_line" "status")
             if [ "$status" = "running" ]; then
-                update_task_field "$taskname" "status" "pending"
+                update_task_field "$taskname" "status" "incomplete"
             fi
         fi
     }
@@ -772,71 +797,16 @@ do_start() {
         done
     fi
 
-    # Main loop - keeps running until all stages complete
+    # Start with interview, then loop through stages until handoff
+    local taskname=""
+    local stage="interview"
+    local prompt_file="$initial_prompt"
+
+    echo -e "${CYAN}Starting interview...${NC}"
+    echo ""
+
+    # Main loop - runs interview → spec → planning → handoff
     while true; do
-        local taskname=""
-        local stage=""
-        local prompt_file=""
-
-        if [ -f "$queue_file" ]; then
-            # Find first pending task at an orchestrated stage
-            for s in $orchestrated_stages; do
-                local found_line
-                found_line=$(grep "\"stage\":\"$s\"" "$queue_file" 2>/dev/null | grep "\"status\":\"pending\"" | head -1 || true)
-                if [ -n "$found_line" ]; then
-                    taskname=$(json_field "$found_line" "task")
-                    stage="$s"
-                    break
-                fi
-            done
-        fi
-
-        if [ -z "$taskname" ]; then
-            if [ -n "$handoff_stage" ]; then
-                local handoff_tasks
-                handoff_tasks=$(grep "\"stage\":\"$handoff_stage\"" "$queue_file" 2>/dev/null | grep "\"status\":\"pending\"" | head -1 || true)
-                if [ -n "$handoff_tasks" ]; then
-                    local handoff_label
-                    handoff_label=$(agent_stage_label "$handoff_stage")
-                    echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-                    echo -e "${GREEN}${handoff_label} stage reached!${NC}"
-                    echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-                    echo ""
-                    echo "Tasks ready for next phase:"
-                    grep "\"stage\":\"$handoff_stage\"" "$queue_file" | while IFS= read -r line; do
-                        local task
-                        task=$(json_field "$line" "task")
-                        echo "  - $task"
-                    done
-                    echo ""
-                    echo "Run 'metagent run-queue' or 'metagent run <taskname>' to continue."
-                    exit 0
-                fi
-            fi
-
-            if [ -f "$queue_file" ] && [ -s "$queue_file" ]; then
-                echo -e "${YELLOW}No pending tasks found.${NC}"
-                echo "Run 'metagent queue' to inspect tasks."
-                exit 0
-            fi
-
-            # No pending tasks at all - start with initial stage interview
-            stage="interview"
-            prompt_file="$initial_prompt"
-            unset METAGENT_TASK
-            echo -e "${CYAN}Starting $(agent_stage_label "$initial_stage") interview...${NC}"
-            echo ""
-        else
-            # Run the pending task's stage
-            prompt_file=$(agent_prompt_for_stage "$stage" "$taskname")
-            export METAGENT_TASK="$taskname"
-            update_task_field "$taskname" "status" "running"
-
-            echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-            echo -e "${BLUE}Task: ${taskname} | Stage: ${stage}${NC}"
-            echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-            echo ""
-        fi
 
         if [ ! -f "$prompt_file" ]; then
             echo -e "${RED}Error: Prompt file not found: ${prompt_file}${NC}"
@@ -854,7 +824,7 @@ do_start() {
 
 $(render_prompt "$prompt_file" "$taskname")"
         fi
-        claude --dangerously-skip-permissions "$prompt_text" &
+        $(get_cli_cmd) "$prompt_text" &
         CLAUDE_PID=$!
 
         # Monitor for marker file or claude exit
@@ -925,6 +895,17 @@ $(render_prompt "$prompt_file" "$taskname")"
         fi
 
         if [ "$marker_found" = true ]; then
+            # Update for next iteration
+            taskname="${MARKER_TASK:-$taskname}"
+            stage="$MARKER_NEXT"
+            prompt_file=$(agent_prompt_for_stage "$stage" "$taskname")
+            export METAGENT_TASK="$taskname"
+            update_task_field "$taskname" "status" "running"
+
+            echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+            echo -e "${BLUE}Task: ${taskname} | Stage: ${stage}${NC}"
+            echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+            echo ""
             continue
         fi
 
@@ -969,7 +950,7 @@ run_stage() {
     prompt_text="Task: $taskname
 
 $(render_prompt "$prompt_file" "$taskname")"
-    claude --dangerously-skip-permissions "$prompt_text"
+    $(get_cli_cmd) "$prompt_text"
     local exit_code=$?
 
     # Check if metagent finish was called
@@ -1004,7 +985,7 @@ do_run_queue() {
     local running_task=""
     cleanup() {
         if [ -n "$running_task" ]; then
-            update_task_field "$running_task" "status" "pending"
+            update_task_field "$running_task" "status" "incomplete"
         fi
     }
     trap cleanup EXIT
@@ -1031,7 +1012,8 @@ do_run_queue() {
             if [ "$s" = "completed" ]; then
                 continue
             fi
-            found_line=$(grep "\"stage\":\"$s\"" "$queue_file" 2>/dev/null | grep "\"status\":\"pending\"" | head -1 || true)
+            # Pick up pending or incomplete tasks
+            found_line=$(grep "\"stage\":\"$s\"" "$queue_file" 2>/dev/null | grep -E "\"status\":\"(pending|incomplete)\"" | head -1 || true)
             if [ -n "$found_line" ]; then
                 taskname=$(json_field "$found_line" "task")
                 stage="$s"
@@ -1039,7 +1021,7 @@ do_run_queue() {
             fi
         done
 
-        # No pending tasks
+        # No pending/incomplete tasks
         if [ -z "$taskname" ]; then
             break
         fi
@@ -1136,7 +1118,7 @@ do_run() {
             task_line=$(grep "\"task\":\"$taskname\"" "$queue_file" 2>/dev/null || true)
             status=$(json_field "$task_line" "status")
             if [ "$status" = "running" ]; then
-                update_task_field "$taskname" "status" "pending"
+                update_task_field "$taskname" "status" "incomplete"
             fi
         fi
     }
@@ -1174,7 +1156,7 @@ do_run() {
 $(render_prompt "$prompt_file" "$taskname")"
 
         # Run claude interactively with prompt as argument
-        claude --dangerously-skip-permissions "$prompt_text" &
+        $(get_cli_cmd) "$prompt_text" &
         local CLAUDE_PID=$!
 
         # Monitor for marker file, send SIGINT (ctrl-c) to claude when found
@@ -1204,7 +1186,7 @@ $(render_prompt "$prompt_file" "$taskname")"
         fi
 
         # No marker - claude exited without signaling, stop loop
-        update_task_field "$taskname" "status" "pending"
+        update_task_field "$taskname" "status" "incomplete"
         echo ""
         echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
         echo -e "${GREEN}Session ended. Run 'metagent run $taskname' to continue.${NC}"
@@ -1271,6 +1253,14 @@ while [[ $# -gt 0 ]]; do
             AGENT="$2"
             shift 2
             ;;
+        --model)
+            if [ -z "$2" ] || [[ "$2" == -* ]]; then
+                echo -e "${RED}Error: --model requires a value (claude, codex)${NC}"
+                exit 1
+            fi
+            MODEL="$2"
+            shift 2
+            ;;
         -h|--help)
             show_help
             exit 0
@@ -1299,9 +1289,9 @@ fi
 # Load agent-specific functions
 load_agent
 
-# No command after options - show help
+# No command after options - run interview flow
 if [ $# -eq 0 ]; then
-    show_help
+    do_start
     exit 0
 fi
 
