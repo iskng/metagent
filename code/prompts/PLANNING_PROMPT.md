@@ -2,13 +2,13 @@
 0b. Study @.agents/code/AGENTS.md - Build/test commands
 0c. Study @.agents/code/TECHNICAL_STANDARDS.md - Coding patterns to follow
 0d. Study @.agents/code/tasks/{taskname}/spec/*.md - Task specifications
-0e. Study @.agents/code/tasks/{taskname}/plan.md - Current plan (may be incomplete or incorrect)
+0e. Study @.agents/code/tasks/{taskname}/plan.md - Current plan (may be incomplete, incorrect, or not created yet)
 
 1. If task name is provided (e.g., "Task: auth-system"), use that name. Otherwise ask which task to plan. Verify .agents/code/tasks/{taskname}/ exists.
 
 2. Use up to 100 subagents to study existing source code and compare against specifications. Search for TODO, minimal implementations, and placeholders. Create/update plan.md as a prioritized bullet point list of items yet to be implemented.
 
-3. Use up to 100 subagents to study existing tests and examples, compare against specifications. Update plan.md with items that are missing or incomplete. Search for TODO, minimal implementations, and placeholders.
+3. Use up to 3 subagents to study tests, examples and existing implementations, compare against specifications. Update plan.md with items that are missing or incomplete. Search for TODO, minimal implementations, and placeholders.
 
 4. Write plan.md as a bullet point list sorted by priority:
 {taskname}

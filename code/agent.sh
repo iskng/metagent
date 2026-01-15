@@ -106,9 +106,11 @@ EOF
 
 3. When the tests pass update @plan.md, then add changed code and @plan.md with git add the relevant files you created/modified via bash then do git commit -m "feat(${taskname}): [descriptive message]"
 
-4. ALWAYS KEEP @plan.md up to date with your learnings about the task using a subagent. Especially after wrapping up/finishing your turn.
+4. ALWAYS KEEP @plan.md up to date with your learnings about the task using a subagent. After wrapping up/finishing your turn append a short session-x summary with what was accomplished and any relevant notes.
 
 5. When you learn something new about how to run the build/tests make sure you update @.agents/code/AGENT.md but keep it brief.
+
+
 
 
 999999. Important: We want single sources of truth, no migrations/adapters. If tests unrelated to your work fail then it's your job to resolve these tests as part of the increment of change.
@@ -123,22 +125,8 @@ EOF
 9999999999999999. **WHEN ITEM DONE:** run \`cd "{repo}" && METAGENT_TASK="{task}" metagent --agent code finish --next build\` to signal iteration complete (more items remain).
 99999999999999999. **WHEN ALL ASPECTS OF THE PLAN.md ARE COMPLETE:** run a full \`cargo build\` to verify everything compiles, then run \`cd "{repo}" && METAGENT_TASK="{task}" metagent --agent code finish\` to signal task complete (all items done).
 EOF
-    # Create spec README
-    cat > "${task_dir}/spec/README.md" << EOF
-# Specifications for ${taskname}
-
-Specification files will be created here during the spec phase.
-
-## Structure
-
-- overview.md - High-level goals and architecture
-- types.md - Type definitions and interfaces
-- {module}.md - Individual module specifications
-- errors.md - Error handling specifications
-EOF
-
     echo ""
-    echo "Continue writing specifications to: ${task_dir}/spec/"
+    echo "Created: ${task_dir}"
 }
 
 # Message shown after install

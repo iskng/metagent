@@ -756,7 +756,7 @@ do_start() {
         rm -f "$marker_file"
         # Kill claude if still running (use SIGINT for graceful exit)
         if [ -n "$CLAUDE_PID" ] && kill -0 "$CLAUDE_PID" 2>/dev/null; then
-            kill -INT "$CLAUDE_PID" 2>/dev/null
+            kill -INT "$CLAUDE_PID" 2>/dev/null || true
             wait "$CLAUDE_PID" 2>/dev/null
         fi
         if [ -n "$taskname" ]; then
@@ -860,7 +860,7 @@ $(render_prompt "$prompt_file" "$taskname")"
                 fi
 
                 echo -e "${GREEN}✓${NC} $(agent_stage_label "$marker_stage") phase complete"
-                kill -INT "$CLAUDE_PID" 2>/dev/null
+                kill -INT "$CLAUDE_PID" 2>/dev/null || true
                 wait "$CLAUDE_PID" 2>/dev/null
                 echo ""
                 sleep 1
@@ -950,8 +950,25 @@ run_stage() {
     prompt_text="Task: $taskname
 
 $(render_prompt "$prompt_file" "$taskname")"
-    $(get_cli_cmd) "$prompt_text"
-    local exit_code=$?
+
+    # Run claude in background and monitor for marker file
+    $(get_cli_cmd) "$prompt_text" &
+    local CLAUDE_PID=$!
+
+    # Track if we found marker (vs user interrupt)
+    local marker_triggered=false
+
+    # Monitor for marker file, send SIGINT (ctrl-c) to claude when found
+    while kill -0 "$CLAUDE_PID" 2>/dev/null; do
+        if [ -f "$marker_file" ]; then
+            marker_triggered=true
+            kill -INT "$CLAUDE_PID" 2>/dev/null || true
+            break
+        fi
+        sleep 0.5
+    done
+
+    wait "$CLAUDE_PID" 2>/dev/null || true
 
     # Check if metagent finish was called
     if [ -f "$marker_file" ]; then
@@ -965,12 +982,14 @@ $(render_prompt "$prompt_file" "$taskname")"
         fi
     fi
 
-    # Claude exited without calling metagent finish
-    if [ "$stage" = "ready" ]; then
-        return 0  # All tasks complete
-    else
-        return $exit_code
+    # Claude exited without marker - was it interrupted or natural exit?
+    if [ "$marker_triggered" = true ]; then
+        # We triggered the kill, marker should have been there
+        return 1
     fi
+
+    # User interrupted (Ctrl+C) or Claude exited on its own
+    return 130  # Signal interrupted
 }
 
 do_run_queue() {
@@ -982,13 +1001,32 @@ do_run_queue() {
         exit 0
     fi
 
+    # Reset any stale "running" tasks to "incomplete" (from previous interrupted runs)
+    local temp_file="${queue_file}.tmp"
+    while IFS= read -r line; do
+        if echo "$line" | grep -q "\"status\":\"running\""; then
+            echo "$line" | sed 's/"status":"running"/"status":"incomplete"/'
+        else
+            echo "$line"
+        fi
+    done < "$queue_file" > "$temp_file"
+    mv "$temp_file" "$queue_file"
+
     local running_task=""
+    local interrupted=false
     cleanup() {
         if [ -n "$running_task" ]; then
-            update_task_field "$running_task" "status" "incomplete"
+            # Don't mark as incomplete if task already completed
+            local task_line stage
+            task_line=$(grep "\"task\":\"$running_task\"" "$queue_file" 2>/dev/null || true)
+            stage=$(json_field "$task_line" "stage")
+            if [ "$stage" != "completed" ]; then
+                update_task_field "$running_task" "status" "incomplete"
+            fi
         fi
     }
     trap cleanup EXIT
+    trap 'interrupted=true; exit 130' INT
 
     echo -e "${BLUE}Processing tasks...${NC}"
     echo ""
@@ -1043,6 +1081,12 @@ do_run_queue() {
         elif [ $result -eq 2 ]; then
             echo ""
             echo -e "${CYAN}↻${NC} '$taskname' continuing..."
+        elif [ $result -eq 130 ]; then
+            # User interrupted - exit the queue
+            update_task_field "$taskname" "status" "incomplete"
+            echo ""
+            echo -e "${YELLOW}⊘${NC} '$taskname' interrupted"
+            break
         else
             update_task_field "$taskname" "status" "failed"
             echo ""
@@ -1114,10 +1158,12 @@ do_run() {
     cleanup() {
         rm -f "$marker_file"
         if [ -n "$taskname" ]; then
-            local task_line status
+            local task_line stage status
             task_line=$(grep "\"task\":\"$taskname\"" "$queue_file" 2>/dev/null || true)
+            stage=$(json_field "$task_line" "stage")
             status=$(json_field "$task_line" "status")
-            if [ "$status" = "running" ]; then
+            # Only mark incomplete if not completed and currently running
+            if [ "$stage" != "completed" ] && [ "$status" = "running" ]; then
                 update_task_field "$taskname" "status" "incomplete"
             fi
         fi
@@ -1162,7 +1208,7 @@ $(render_prompt "$prompt_file" "$taskname")"
         # Monitor for marker file, send SIGINT (ctrl-c) to claude when found
         while kill -0 "$CLAUDE_PID" 2>/dev/null; do
             if [ -f "$marker_file" ]; then
-                kill -INT "$CLAUDE_PID" 2>/dev/null
+                kill -INT "$CLAUDE_PID" 2>/dev/null || true
                 break
             fi
             sleep 0.5

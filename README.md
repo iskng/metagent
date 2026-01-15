@@ -29,18 +29,24 @@ metagent --agent writer init
 ## Commands
 
 ```bash
-metagent [--agent TYPE] <command> [args]
+metagent [--agent TYPE] [--model MODEL] <command> [args]
 
+metagent                   # Start new task (same as metagent start)
 metagent install           # Setup globally (first time)
 metagent uninstall         # Remove metagent globally
 metagent init [path]       # Initialize agent in repo
 metagent start             # Start new task interactively
 metagent task <name>       # Create task (used by model)
-metagent finish <stage>    # Signal stage completion
+metagent finish [stage]    # Signal stage/task completion
+metagent finish --next <stage>  # Signal iteration complete, stay in stage
 metagent run <name>        # Run loop for a task
 metagent queue             # Show task queue
 metagent dequeue <name>    # Remove from queue
 metagent run-queue         # Process all queued tasks
+
+Options:
+  --agent TYPE    Select agent (code, writer) [default: code]
+  --model MODEL   Select model CLI (claude, codex) [default: claude]
 ```
 
 ## What Gets Installed
@@ -119,9 +125,13 @@ your-repo/.agents/writer/
 
 ### Stage Transitions
 
-**Code agent:** `spec → planning → ready → completed`
+**Code agent:** `spec → planning → build → completed`
 
 **Writer agent:** `init → plan ⟷ write → completed`
+
+The code agent uses `--next` to signal iteration vs completion:
+- `metagent finish --next build` - iteration complete, more work remains
+- `metagent finish` - all plan items complete, task done
 
 The writer agent cycles between `plan` and `write` stages:
 - `metagent finish write --next write` - more pages in section

@@ -1,4 +1,4 @@
-# RALPH BOOTSTRAP - Configure Workflow for Repository
+# Configure Workflow for Repository
 
 ## Purpose
 
@@ -28,11 +28,6 @@ Required files:
 - `.agents/code/TECHNICAL_STANDARDS.md`
 - `.agents/code/SPEC.md`
 - `metagent` command available
-
-Prompts are centralized at `~/.metagent/code/` and invoked via slash commands:
-- `/spec` - Specification phase
-- `/planner` - Planning phase
-- `/debug` - Bug diagnosis
 
 If `.agents/code/` is missing, inform user to run `metagent init` first.
 
@@ -604,3 +599,4 @@ If issues found:
 9999999. **SPEC.md IS CRITICAL - It's the source of truth for what this project is**
 99999999. **USE STR_REPLACE TO UPDATE - DON'T REWRITE FILES**
 999999999. **REPORT WHAT NEEDS MANUAL SETUP**
+9999999999. Be token efficent, clear and precise in writing the md files the md files are prompts for llms
