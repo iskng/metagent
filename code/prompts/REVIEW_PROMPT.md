@@ -1,184 +1,56 @@
-# REVIEW PHASE - Code Review for Task Implementation
-
-## Purpose
-
-Review all commits from a task implementation to identify issues and determine next steps.
-
----
-
-## CONTEXT
-
-Task being reviewed: `{task}`
-
-Study these files first:
-- @.agents/code/tasks/{task}/spec/ - Task specifications (what was supposed to be built)
-- @.agents/code/tasks/{task}/plan.md - Implementation plan
-
+0a. Study @.agents/code/tasks/{task}/spec/ - Task specifications (what was supposed to be built)
+0b. Study @.agents/code/tasks/{task}/plan.md - Implementation plan
+0c. Study @.agents/code/TECHNICAL_STANDARDS.md - Coding patterns to follow
 {focus_section}
 
----
+1. Find all commits for this task: `git log --oneline --grep="{task}"`. For each commit, review the full diff with `git show <hash>`.
 
-## STEP 1: Find Task Commits
+2. Review each commit for: Spec compliance (matches requirements? missing features? scope creep?), Code quality (follows patterns? duplication? naming?), Correctness (edge cases? bugs? race conditions?), Security (hardcoded secrets? input validation? injection?), Testing (tests exist? meaningful? cover edge cases?), Performance (N+1 queries? unnecessary loops? memory leaks?).
 
-Find all commits related to this task:
+3. Flag an issue ONLY IF: it meaningfully impacts accuracy/performance/security/maintainability, is discrete and actionable, fixing it doesn't demand rigor absent from rest of codebase, was introduced in THIS commit (not pre-existing), author would likely fix if aware, doesn't rely on unstated assumptions about codebase or intent, other affected code is provably identified (no speculation), is clearly not an intentional change by the author. Ignore trivial style unless it violates documented standards.
 
-```bash
-git log --oneline --grep="{task}"
-```
+4. Output ALL findings the author would definitely want to fix. Do not stop at the first qualifying finding - continue until every qualifying finding is listed. If no finding qualifies, output none.
 
-For each commit, get the full diff:
+5. Create/update @.agents/code/tasks/{task}/issues.md with findings. For each issue: clear problem description, file path and line number, concrete suggested fix (code snippets ≤3 lines). Priority: [P0] blocking/universal, [P1] urgent, [P2] normal, [P3] low.
 
-```bash
-git show <commit-hash>
-```
-
----
-
-## STEP 2: Review Each Commit
-
-For each commit, analyze:
-
-### Spec Compliance
-- Does the implementation match the spec?
-- Are there missing requirements?
-- Are there scope creep or unauthorized changes?
-- Were architectural decisions followed?
-
-### Code Quality
-- Does the code follow patterns in @.agents/code/TECHNICAL_STANDARDS.md?
-- Are there any code smells (duplication, long functions, unclear naming)?
-- Is error handling appropriate?
-
-### Correctness
-- Are there edge cases not handled?
-- Are there potential bugs or race conditions?
-- Is the logic correct?
-
-### Security
-- Any hardcoded secrets or credentials?
-- Input validation issues?
-- SQL injection, XSS, or other vulnerabilities?
-
-### Testing
-- Are there tests for new functionality?
-- Do tests cover edge cases?
-- Are tests meaningful (not just coverage padding)?
-
-### Performance
-- Any obvious performance issues (N+1 queries, unnecessary loops)?
-- Memory leaks or resource cleanup issues?
-
----
-
-## STEP 3: Document Issues
-
-Create or update `.agents/code/tasks/{task}/issues.md` with findings:
-
-```markdown
+Format:
 # Code Review - {task}
-
 > Reviewed: {date}
-> Commits: {list of commit hashes reviewed}
+> Commits: {hashes}
 > Verdict: PASS | NEEDS BUILD FIXES | NEEDS SPEC CLARIFICATION
 
 ## Spec Issues
-
-Issues that require returning to spec phase for clarification or decisions.
-
-### Issue 1: {title}
-- **Problem:** {missing/unclear requirement or architectural issue}
-- **Decision needed:** {what needs to be decided}
+Issues requiring spec phase (requirements/architecture decisions).
+### [P1] Issue title
+- **Problem:** {description}
+- **Decision needed:** {what to decide}
 - **Status:** open
 
 ## Build Issues
-
-Issues that require returning to build phase for fixes.
-
-### Issue 1: {title}
+Issues requiring build phase (implementation fixes).
+### [P2] Issue title
 - **File:** {path}:{line}
 - **Commit:** {hash}
-- **Problem:** {bug, code quality issue, missing test}
-- **Suggested fix:** {how to fix}
+- **Problem:** {description}
+- **Suggested fix:** {concrete fix}
 - **Status:** open
 
 ## Suggestions
-
 Optional improvements (not blocking).
 
-### Suggestion 1: {title}
-- **Description:** {what could be improved}
+6. Categorize each finding: Spec Issues = missing/unclear requirements, architectural decisions needed, scope questions, wrong approach. Build Issues = bugs, code quality, missing tests, security flaws, performance problems. When in doubt, it's a build issue (easier to fix).
 
----
+7. Signal next stage:
+- Spec issues exist (any open): `cd "{repo}" && METAGENT_TASK="{task}" metagent --agent code finish review --next spec`
+- Only build issues (no spec issues): `cd "{repo}" && METAGENT_TASK="{task}" metagent --agent code finish review --next build`
+- Pass (no issues): `cd "{repo}" && METAGENT_TASK="{task}" metagent --agent code finish review`
 
-## Review Summary
-
-| Category | Count |
-|----------|-------|
-| Spec Issues | {n} |
-| Build Issues | {n} |
-| Suggestions | {n} |
-
-**Verdict:** {PASS | NEEDS BUILD FIXES | NEEDS SPEC CLARIFICATION}
-```
-
----
-
-## STEP 4: Determine Next Stage
-
-Based on your findings, signal the appropriate next stage:
-
-### If SPEC ISSUES exist (any open spec issues):
-The task needs spec clarification before proceeding.
-
-```bash
-metagent finish review --next spec
-```
-
-### If only BUILD ISSUES exist (no spec issues, but build issues):
-The task needs code fixes.
-
-```bash
-metagent finish review --next build
-```
-
-### If PASS (no open spec or build issues):
-The task is ready for completion.
-
-```bash
-metagent finish review
-```
-
----
-
-## STEP 5: Report to User
-
-After creating/updating issues.md and signaling completion, provide a summary:
-
-```
-Review complete for: {task}
-
-Commits reviewed: {count}
-Verdict: {PASS | NEEDS BUILD FIXES | NEEDS SPEC CLARIFICATION}
-
-Issues found:
-  - Spec issues: {count}
-  - Build issues: {count}
-  - Suggestions: {count}
-
-Next stage: {spec | build | completed}
-
-Details: .agents/code/tasks/{task}/issues.md
-```
-
----
-
-## RULES
-
-1. Review ALL commits for the task, not just the latest
-2. Be specific - include file paths and line numbers
-3. Suggest fixes, not just problems
-4. Compare implementation against spec
-5. Don't nitpick style if it matches project standards
-6. Spec issues = requirements/architecture problems → back to spec
-7. Build issues = implementation problems → back to build
-8. When in doubt, it's a build issue (easier to fix)
+999. Spec issues = requirements/architecture → back to spec.
+9999. Build issues = implementation → back to build.
+99999. When in doubt, it's a build issue (easier to fix).
+999999. One issue per distinct problem.
+9999999. ONLY flag bugs introduced in this task's commits - pre-existing bugs should NOT be flagged.
+99999999. NO SPECULATION - other affected code must be provably identified, not guessed.
+999999999. Don't rely on unstated assumptions about codebase or author's intent.
+9999999999. Allowed parallelism: Codebase search up to 50 subagents, file reading up to 50 subagents.
+{issues_mode}

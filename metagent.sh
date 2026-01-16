@@ -1330,6 +1330,11 @@ do_review() {
     export METAGENT_AGENT="$AGENT"
     export METAGENT_TASK="$taskname"
 
+    # Default to codex for review (user can override with --model claude)
+    if [ "$MODEL" = "claude" ] && [ -z "$METAGENT_MODEL" ]; then
+        MODEL="codex"
+    fi
+
     # Build focus section if provided
     local focus_section=""
     if [ -n "$focus_prompt" ]; then
