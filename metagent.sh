@@ -12,6 +12,7 @@
 #   metagent queue [taskname]            Add task to queue / show queue
 #   metagent dequeue <taskname>          Remove task from queue
 #   metagent run-queue                   Process all queued tasks
+#   metagent spec-review <taskname>      Review task specs for issues
 #   metagent review <taskname> [focus]   Review task commits for issues
 #
 # Common options:
@@ -36,6 +37,8 @@ while [ -L "$SCRIPT_SOURCE" ]; do
     [[ $SCRIPT_SOURCE != /* ]] && SCRIPT_SOURCE="$SCRIPT_DIR/$SCRIPT_SOURCE"
 done
 SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_SOURCE")" && pwd)"
+METAGENT_HOME=""  # Injected during install, fallback to SCRIPT_DIR
+METAGENT_HOME="${METAGENT_HOME:-$SCRIPT_DIR}"
 AGENT="${METAGENT_AGENT:-code}"    # Default to code, can be overridden
 MODEL="${METAGENT_MODEL:-claude}"  # Default to claude, can be overridden (claude or codex)
 
@@ -104,7 +107,7 @@ show_help() {
 
 # Load agent-specific functions
 load_agent() {
-    local agent_script="$SCRIPT_DIR/$AGENT/agent.sh"
+    local agent_script="$METAGENT_HOME/$AGENT/agent.sh"
     if [ ! -f "$agent_script" ]; then
         echo -e "${RED}Error: Agent '$AGENT' not found at $agent_script${NC}"
         exit 1
@@ -182,6 +185,7 @@ render_prompt() {
 
     # Check if task has issues status
     local issues_mode=""
+    local issues_header=""
     if [ -n "$taskname" ]; then
         local queue_file
         queue_file=$(get_queue_file)
@@ -192,13 +196,32 @@ render_prompt() {
                 local status
                 status=$(json_field "$task_entry" "status")
                 if [ "$status" = "issues" ]; then
-                    issues_mode="99999999999999. **REVIEW ISSUES:** This task returned from review with issues. Read @.agents/code/tasks/${taskname}/issues.md and address all open issues for this phase. Discuss decisions with the user as needed. Update issue status to \"resolved\" when addressed. All issues must be resolved before finishing this phase."
+                    issues_header="0d. Check @.agents/code/tasks/${taskname}/issues.md - Open issues from review MUST be addressed first
+
+1. **PRIORITY: Review Issues** - If issues.md exists with open issues, address those FIRST. These are requirements clarifications or architectural decisions needed. Update issue status to \"resolved\" when addressed."
+                    issues_mode="99999999999999. **REVIEW ISSUES:** This task returned from review with issues. All issues in @.agents/code/tasks/${taskname}/issues.md must be resolved before finishing this phase."
                 fi
             fi
         fi
     fi
     local issues_escaped
     issues_escaped=$(escape_sed_replacement "$issues_mode")
+    local issues_header_escaped
+    issues_header_escaped=$(escape_sed_replacement "$issues_header")
+
+    # Set parallelism mode based on model
+    local parallelism_mode=""
+    if [ "$MODEL" = "claude" ] || [ -z "$MODEL" ]; then
+        parallelism_mode="## Parallelism
+- Use subagents liberally for research before implementing
+- Codebase search: up to 100 subagents
+- File reading: up to 100 subagents
+- File writing: up to 10 subagents (independent files only)
+- Build/test: 1 subagent only
+- plan.md updates: 1 subagent"
+    fi
+    local parallelism_escaped
+    parallelism_escaped=$(escape_sed_replacement "$parallelism_mode")
 
     if [ -n "$taskname" ]; then
         local task_escaped
@@ -207,12 +230,16 @@ render_prompt() {
             -e "s|{repo}|$repo_escaped|g" \
             -e "s|{taskname}|$task_escaped|g" \
             -e "s|{task}|$task_escaped|g" \
+            -e "s|{issues_header}|$issues_header_escaped|g" \
             -e "s|{issues_mode}|$issues_escaped|g" \
+            -e "s|{parallelism_mode}|$parallelism_escaped|g" \
             "$prompt_file"
     else
         sed -E \
             -e "s|{repo}|$repo_escaped|g" \
+            -e "s|{issues_header}||g" \
             -e "s|{issues_mode}||g" \
+            -e "s|{parallelism_mode}|$parallelism_escaped|g" \
             "$prompt_file"
     fi
 }
@@ -375,11 +402,12 @@ do_install() {
     mkdir -p "$claude_commands"
     mkdir -p "$codex_commands"
 
-    # Copy metagent to PATH
-    cp "$SCRIPT_DIR/metagent.sh" "$bin_dir/metagent"
+    # Copy metagent to PATH and inject METAGENT_HOME pointing to ~/.metagent
+    sed "s|^METAGENT_HOME=.*|METAGENT_HOME=\"$metagent_dir\"|" "$SCRIPT_DIR/metagent.sh" > "$bin_dir/metagent"
+    chmod +x "$bin_dir/metagent"
     echo -e "${GREEN}✓${NC} Copied metagent to $bin_dir/metagent"
 
-    # Install each agent's prompts
+    # Install each agent
     for agent_dir in "$SCRIPT_DIR"/*/; do
         local agent_name=$(basename "$agent_dir")
         # Skip if not a valid agent (must have agent.sh)
@@ -389,9 +417,13 @@ do_install() {
 
         mkdir -p "$metagent_dir/$agent_name"
 
+        # Copy agent.sh
+        cp "$agent_dir/agent.sh" "$metagent_dir/$agent_name/"
+        echo -e "${BLUE}Installing $agent_name agent...${NC}"
+        echo -e "  ${GREEN}✓${NC} agent.sh"
+
         # Copy prompts
         if [ -d "$agent_dir/prompts" ]; then
-            echo -e "${BLUE}Installing $agent_name prompts...${NC}"
             for file in "$agent_dir/prompts"/*; do
                 if [ -f "$file" ]; then
                     cp "$file" "$metagent_dir/$agent_name/"
@@ -988,7 +1020,30 @@ run_stage() {
     export METAGENT_AGENT="$AGENT"
     rm -f "$marker_file"
 
-    # Run Claude with the prompt as argument
+    # Check if agent specifies a preferred model for this stage
+    if type agent_model_for_stage &>/dev/null; then
+        local stage_model
+        stage_model=$(agent_model_for_stage "$stage")
+        if [ -n "$stage_model" ] && [ -z "$METAGENT_MODEL" ]; then
+            MODEL="$stage_model"
+        fi
+    fi
+
+    # Issues mode defaults to codex
+    if [ -n "$taskname" ]; then
+        local queue_file
+        queue_file=$(get_queue_file)
+        if [ -f "$queue_file" ]; then
+            local task_entry task_status
+            task_entry=$(grep "\"task\":\"$taskname\"" "$queue_file" 2>/dev/null || true)
+            task_status=$(json_field "$task_entry" "status")
+            if [ "$task_status" = "issues" ] && [ -z "$METAGENT_MODEL" ]; then
+                MODEL="codex"
+            fi
+        fi
+    fi
+
+    # Run CLI with the prompt as argument
     echo -e "${CYAN}Task: ${taskname}${NC}"
     echo ""
     local prompt_text
@@ -1235,6 +1290,22 @@ do_run() {
         current_stage=$(json_field "$task_entry" "stage")
         prompt_file=$(agent_prompt_for_stage "$current_stage" "$taskname")
 
+        # Check if agent specifies a preferred model for this stage
+        if type agent_model_for_stage &>/dev/null; then
+            local stage_model
+            stage_model=$(agent_model_for_stage "$current_stage")
+            if [ -n "$stage_model" ] && [ -z "$METAGENT_MODEL" ]; then
+                MODEL="$stage_model"
+            fi
+        fi
+
+        # Issues mode defaults to codex
+        local task_status
+        task_status=$(json_field "$task_entry" "status")
+        if [ "$task_status" = "issues" ] && [ -z "$METAGENT_MODEL" ]; then
+            MODEL="codex"
+        fi
+
         if [ "$current_stage" = "completed" ]; then
             echo -e "${GREEN}Task '$taskname' completed!${NC}"
             break
@@ -1330,9 +1401,13 @@ do_review() {
     export METAGENT_AGENT="$AGENT"
     export METAGENT_TASK="$taskname"
 
-    # Default to codex for review (user can override with --model claude)
-    if [ "$MODEL" = "claude" ] && [ -z "$METAGENT_MODEL" ]; then
-        MODEL="codex"
+    # Use agent's preferred model for review stage
+    if type agent_model_for_stage &>/dev/null; then
+        local stage_model
+        stage_model=$(agent_model_for_stage "review")
+        if [ -n "$stage_model" ] && [ -z "$METAGENT_MODEL" ]; then
+            MODEL="$stage_model"
+        fi
     fi
 
     # Build focus section if provided
@@ -1350,6 +1425,55 @@ Prioritize investigating this area first, then continue with full review."
     prompt_text="Task: $taskname
 
 $(render_prompt "$prompt_file" "$taskname" | sed "s|{focus_section}|$focus_section|g")"
+
+    $(get_cli_cmd) "$prompt_text"
+}
+
+do_spec_review() {
+    local taskname
+    taskname=$(sanitize_taskname "$1") || exit 1
+
+    if [ -z "$taskname" ]; then
+        echo -e "${RED}Error: Task name required${NC}"
+        echo "Usage: metagent spec-review <taskname>"
+        exit 1
+    fi
+
+    local agent_root
+    agent_root=$(get_agent_root)
+    local task_dir="$agent_root/tasks/${taskname}"
+    local metagent_dir="$HOME/.metagent/$AGENT"
+    local prompt_file="$metagent_dir/SPEC_REVIEW_PROMPT.md"
+
+    if [ ! -d "$task_dir" ]; then
+        echo -e "${RED}Error: Task '$taskname' not found${NC}"
+        exit 1
+    fi
+
+    if [ ! -f "$prompt_file" ]; then
+        echo -e "${RED}Error: Spec review prompt not found. Run 'metagent install' first.${NC}"
+        exit 1
+    fi
+
+    echo -e "${BLUE}Reviewing spec for task: ${taskname}${NC}"
+    echo ""
+
+    export METAGENT_AGENT="$AGENT"
+    export METAGENT_TASK="$taskname"
+
+    # Use agent's preferred model for spec-review stage
+    if type agent_model_for_stage &>/dev/null; then
+        local stage_model
+        stage_model=$(agent_model_for_stage "spec-review")
+        if [ -n "$stage_model" ] && [ -z "$METAGENT_MODEL" ]; then
+            MODEL="$stage_model"
+        fi
+    fi
+
+    local prompt_text
+    prompt_text="Task: $taskname
+
+$(render_prompt "$prompt_file" "$taskname")"
 
     $(get_cli_cmd) "$prompt_text"
 }
@@ -1434,10 +1558,10 @@ while [[ $# -gt 0 ]]; do
 done
 
 # Validate agent exists
-if [ ! -f "$SCRIPT_DIR/$AGENT/agent.sh" ]; then
+if [ ! -f "$METAGENT_HOME/$AGENT/agent.sh" ]; then
     echo -e "${RED}Error: Unknown agent type '$AGENT'.${NC}"
     echo "Available agents:"
-    for d in "$SCRIPT_DIR"/*/; do
+    for d in "$METAGENT_HOME"/*/; do
         if [ -f "$d/agent.sh" ]; then
             echo "  - $(basename "$d")"
         fi
@@ -1492,6 +1616,9 @@ case "$COMMAND" in
         ;;
     review)
         do_review "$@"
+        ;;
+    spec-review)
+        do_spec_review "$@"
         ;;
     *)
         echo -e "${RED}Error: Unknown command '$COMMAND'${NC}"

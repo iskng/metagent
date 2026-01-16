@@ -52,5 +52,5 @@ Optional improvements (not blocking).
 9999999. ONLY flag bugs introduced in this task's commits - pre-existing bugs should NOT be flagged.
 99999999. NO SPECULATION - other affected code must be provably identified, not guessed.
 999999999. Don't rely on unstated assumptions about codebase or author's intent.
-9999999999. Allowed parallelism: Codebase search up to 50 subagents, file reading up to 50 subagents.
 {issues_mode}
+{parallelism_mode}

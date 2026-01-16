@@ -1,11 +1,12 @@
 #!/bin/bash
 # Code agent - Software development workflow
 #
-# Stages: spec → planning → build → review → completed
+# Stages: spec → [spec-review] → planning → build → [review] → completed
+# Optional stages in brackets
 
 # Returns all stages in order
 agent_stages() {
-    echo "spec planning build review completed"
+    echo "spec spec-review planning build review completed"
 }
 
 # Returns stages orchestrated by metagent start
@@ -27,12 +28,13 @@ agent_initial_stage() {
 agent_next_stage() {
     local stage="$1"
     case "$stage" in
-        spec)     echo "planning" ;;
-        planning) echo "build" ;;
-        build)    echo "review" ;;
-        review)   echo "completed" ;;
-        task)     echo "completed" ;;
-        *)        echo "" ;;
+        spec)        echo "planning" ;;
+        spec-review) echo "planning" ;;
+        planning)    echo "build" ;;
+        build)       echo "review" ;;
+        review)      echo "completed" ;;
+        task)        echo "completed" ;;
+        *)           echo "" ;;
     esac
 }
 
@@ -40,11 +42,12 @@ agent_next_stage() {
 agent_stage_label() {
     local stage="$1"
     case "$stage" in
-        spec)      echo "Spec" ;;
-        planning)  echo "Planning" ;;
-        build)     echo "Build" ;;
-        review)    echo "Review" ;;
-        completed) echo "Completed" ;;
+        spec)        echo "Spec" ;;
+        spec-review) echo "Spec Review" ;;
+        planning)    echo "Planning" ;;
+        build)       echo "Build" ;;
+        review)      echo "Review" ;;
+        completed)   echo "Completed" ;;
     esac
 }
 
@@ -56,10 +59,11 @@ agent_prompt_for_stage() {
     local repo_root="${METAGENT_REPO_ROOT:-$(pwd)}"
 
     case "$stage" in
-        spec)     echo "$metagent_dir/SPEC_PROMPT.md" ;;
-        planning) echo "$metagent_dir/PLANNING_PROMPT.md" ;;
-        build)    echo "$repo_root/.agents/code/tasks/$taskname/PROMPT.md" ;;
-        review)   echo "$metagent_dir/REVIEW_PROMPT.md" ;;
+        spec)        echo "$metagent_dir/SPEC_PROMPT.md" ;;
+        spec-review) echo "$metagent_dir/SPEC_REVIEW_PROMPT.md" ;;
+        planning)    echo "$metagent_dir/PLANNING_PROMPT.md" ;;
+        build)       echo "$repo_root/.agents/code/tasks/$taskname/PROMPT.md" ;;
+        review)      echo "$metagent_dir/REVIEW_PROMPT.md" ;;
     esac
 }
 
@@ -69,21 +73,34 @@ agent_review_prompt() {
     echo "$metagent_dir/REVIEW_PROMPT.md"
 }
 
+# Returns the preferred model for a stage (empty = use default)
+agent_model_for_stage() {
+    local stage="$1"
+    case "$stage" in
+        spec-review) echo "codex" ;;
+        planning)    echo "codex" ;;
+        build)       echo "codex" ;;
+        review)      echo "codex" ;;
+        *)           echo "" ;;
+    esac
+}
+
 # Returns message shown when finishing a stage
 agent_finish_message() {
     local stage="$1"
     case "$stage" in
-        spec)     echo "Spec phase complete." ;;
-        planning) echo "Planning phase complete." ;;
-        build)    echo "Build iteration complete." ;;
-        review)   echo "Review phase complete." ;;
-        task)     echo "Task complete." ;;
+        spec)        echo "Spec phase complete." ;;
+        spec-review) echo "Spec review complete." ;;
+        planning)    echo "Planning phase complete." ;;
+        build)       echo "Build iteration complete." ;;
+        review)      echo "Review phase complete." ;;
+        task)        echo "Task complete." ;;
     esac
 }
 
 # Returns valid finish stages for this agent
 agent_valid_finish_stages() {
-    echo "spec planning build review task"
+    echo "spec spec-review planning build review task"
 }
 
 # Creates the task directory structure
@@ -109,35 +126,29 @@ EOF
 0b. Study @.agents/code/TECHNICAL_STANDARDS.md - Codebase patterns to follow
 0c. Study @.agents/code/tasks/${taskname}/plan.md - Current task list
 0d. Study @.agents/code/AGENTS.md - Build/test commands and learnings
-0e. Check if @.agents/code/tasks/${taskname}/issues.md exists - If it does, these are review issues that MUST be fixed first
+{issues_header}
 
-1. **PRIORITY: Review Issues** - If issues.md exists with open issues, fix those FIRST before any plan.md items. When an issue is fixed, update its status from "open" to "resolved" in issues.md.
+1. Your task is to implement ${taskname} per the specifications. Study @plan.md, choose the most important uncompleted items that you can accomplish in one pass (max 5), research before implementing (NEVER assume code doesn't exist), implement according to specifications.
 
-2. Your task is to implement ${taskname} per the specifications. Study @plan.md, choose the most important uncompleted items that you can accomplish in one pass (max 5), research using subagents before implementing (NEVER assume code doesn't exist), implement according to specifications.
+2. After implementing functionality or resolving problems, run the tests for that unit of code that was improved. If functionality is missing then it's your job to add it as per the application specifications.
 
-3. After implementing functionality or resolving problems, run the tests for that unit of code that was improved. If functionality is missing then it's your job to add it as per the application specifications.
+3. When the tests pass update @plan.md, then add changed code and @plan.md with git add the relevant files you created/modified via bash then do git commit -m "feat(${taskname}): [descriptive message]"
 
-4. When the tests pass update @plan.md, then add changed code and @plan.md with git add the relevant files you created/modified via bash then do git commit -m "feat(${taskname}): [descriptive message]"
+4. ALWAYS KEEP @plan.md up to date with your learnings about the task. After wrapping up/finishing your turn append a short session-x summary with what was accomplished and any relevant notes.
 
-5. ALWAYS KEEP @plan.md up to date with your learnings about the task using a subagent. After wrapping up/finishing your turn append a short session-x summary with what was accomplished and any relevant notes.
-
-6. When you learn something new about how to run the build/tests make sure you update @.agents/code/AGENT.md but keep it brief.
-
-
-
+5. When you learn something new about how to run the build/tests make sure you update @.agents/code/AGENT.md but keep it brief.
 
 999999. Important: We want single sources of truth, no migrations/adapters. If tests unrelated to your work fail then it's your job to resolve these tests as part of the increment of change.
 99999999. Important: When authoring tests capture the WHY - document importance in docstrings.
-999999999. IMPORTANT: When you discover a bug resolve it using subagents even if it is unrelated to the current piece of work after documenting it in @plan.md
+999999999. IMPORTANT: When you discover a bug resolve it even if it is unrelated to the current piece of work after documenting it in @plan.md
 9999999999. You may add extra logging if required to be able to debug the issues.
 99999999999. If you find inconsistencies in the specs/* then use the oracle (think extra hard) and then update the specs.
-999999999999. Required parallelism: build/test must use 1 SUBAGENT, plan.md updates must use 1 SUBAGENT.
-9999999999999. Allowed parallelism: Codebase search up to 50 subagents, file reading up to 50 subagents, file writing up to 10 subagents (independent files only).
-99999999999999. FULL IMPLEMENTATIONS ONLY. NO PLACEHOLDERS. NO STUBS. NO TODO COMMENTS. DO NOT IMPLEMENT PLACEHOLDER OR SIMPLE IMPLEMENTATIONS. WE WANT FULL IMPLEMENTATIONS. DO IT OR I WILL YELL AT YOU
-999999999999999. SUPER IMPORTANT DO NOT IGNORE. DO NOT PLACE STATUS REPORT UPDATES INTO @.agents/code/AGENT.md
-9999999999999999. **WHEN ITEM DONE:** run \`cd "{repo}" && METAGENT_TASK="{task}" metagent --agent code finish --next build\` to signal iteration complete (more items remain).
-99999999999999999. **WHEN ALL ASPECTS OF THE PLAN.md ARE COMPLETE:** run a full \`cargo build\` to verify everything compiles, then run \`cd "{repo}" && METAGENT_TASK="{task}" metagent --agent code finish\` to signal task complete (all items done).
+999999999999. FULL IMPLEMENTATIONS ONLY. NO PLACEHOLDERS. NO STUBS. NO TODO COMMENTS. DO NOT IMPLEMENT PLACEHOLDER OR SIMPLE IMPLEMENTATIONS. WE WANT FULL IMPLEMENTATIONS. DO IT OR I WILL YELL AT YOU
+9999999999999. SUPER IMPORTANT DO NOT IGNORE. DO NOT PLACE STATUS REPORT UPDATES INTO @.agents/code/AGENT.md
+99999999999999. **WHEN ITEM DONE:** run \`cd "{repo}" && METAGENT_TASK="{task}" metagent --agent code finish --next build\` to signal iteration complete (more items remain).
+999999999999999. **WHEN ALL ASPECTS OF THE PLAN.md ARE COMPLETE:** run a full \`cargo build\` to verify everything compiles, then run \`cd "{repo}" && METAGENT_TASK="{task}" metagent --agent code finish\` to signal task complete (all items done).
 {issues_mode}
+{parallelism_mode}
 EOF
     echo ""
     echo "Created: ${task_dir}"
