@@ -165,23 +165,6 @@ Run in this order for fast feedback:
 - Temporary notes
 - Personal comments
 
----
-
-## Git Workflow
-
-```bash
-# Commit after tests pass
-git add -A
-git commit -m "{task}: {description}"
-git push
-
-# Tag when stable (no errors)
-git tag {version}
-git push --tags
-
-# Reset to last stable (recovery)
-git reset --hard {tag}
-```
 
 ---
 

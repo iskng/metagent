@@ -41,9 +41,9 @@ Optional improvements (not blocking).
 6. Categorize each finding: Spec Issues = missing/unclear requirements, architectural decisions needed, scope questions, wrong approach. Build Issues = bugs, code quality, missing tests, security flaws, performance problems. When in doubt, it's a build issue (easier to fix).
 
 7. Signal next stage:
-- Spec issues exist (any open): `cd "{repo}" && METAGENT_TASK="{task}" metagent --agent code finish review --next spec`
-- Only build issues (no spec issues): `cd "{repo}" && METAGENT_TASK="{task}" metagent --agent code finish review --next build`
-- Pass (no issues): `cd "{repo}" && METAGENT_TASK="{task}" metagent --agent code finish review`
+- Spec issues exist (any open): `cd "{repo}" && METAGENT_TASK="{task}" metagent --agent code finish review --session "{session}" --next spec`
+- Only build issues (no spec issues): `cd "{repo}" && METAGENT_TASK="{task}" metagent --agent code finish review --session "{session}" --next build`
+- Pass (no issues): `cd "{repo}" && METAGENT_TASK="{task}" metagent --agent code finish review --session "{session}"`
 
 999. Spec issues = requirements/architecture → back to spec.
 9999. Build issues = implementation → back to build.

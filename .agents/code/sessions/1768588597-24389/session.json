@@ -1,0 +1,13 @@
+{
+  "session_id": "1768588597-24389",
+  "task": null,
+  "agent": "code",
+  "stage": "spec",
+  "status": "failed",
+  "started_at": "2026-01-16T18:36:37Z",
+  "finished_at": "2026-01-16T18:36:41Z",
+  "next_stage": null,
+  "pid": 24389,
+  "host": "Bs-MacBook-Pro.local",
+  "repo_root": "/Users/user/dev/macos/metagent"
+}

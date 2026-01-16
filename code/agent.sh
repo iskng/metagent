@@ -145,8 +145,8 @@ EOF
 99999999999. If you find inconsistencies in the specs/* then use the oracle (think extra hard) and then update the specs.
 999999999999. FULL IMPLEMENTATIONS ONLY. NO PLACEHOLDERS. NO STUBS. NO TODO COMMENTS. DO NOT IMPLEMENT PLACEHOLDER OR SIMPLE IMPLEMENTATIONS. WE WANT FULL IMPLEMENTATIONS. DO IT OR I WILL YELL AT YOU
 9999999999999. SUPER IMPORTANT DO NOT IGNORE. DO NOT PLACE STATUS REPORT UPDATES INTO @.agents/code/AGENT.md
-99999999999999. **WHEN ITEM DONE:** run \`cd "{repo}" && METAGENT_TASK="{task}" metagent --agent code finish --next build\` to signal iteration complete (more items remain).
-999999999999999. **WHEN ALL ASPECTS OF THE PLAN.md ARE COMPLETE:** run a full \`cargo build\` to verify everything compiles, then run \`cd "{repo}" && METAGENT_TASK="{task}" metagent --agent code finish\` to signal task complete (all items done).
+99999999999999. **WHEN ITEM DONE:** run \`cd "{repo}" && METAGENT_SESSION="{session}" METAGENT_TASK="{task}" metagent --agent code finish --next build\` to signal iteration complete (more items remain).
+999999999999999. **WHEN ALL ASPECTS OF THE PLAN.md ARE COMPLETE:** run a full \`cargo build\` to verify everything compiles, then run \`cd "{repo}" && METAGENT_SESSION="{session}" METAGENT_TASK="{task}" metagent --agent code finish\` to signal task complete (all items done).
 {issues_mode}
 {parallelism_mode}
 EOF
@@ -171,6 +171,7 @@ agent_slash_commands() {
         ln -sf "$prompt_dir/SPEC_PROMPT.md" "$commands_dir/spec.md"
         ln -sf "$prompt_dir/PLANNING_PROMPT.md" "$commands_dir/planner.md"
         ln -sf "$prompt_dir/DEBUG_PROMPT.md" "$commands_dir/debug.md"
+        ln -sf "$prompt_dir/SUBMIT_ISSUE_PROMPT.md" "$commands_dir/submit-issue.md"
     done
-    echo -e "  ${GREEN}✓${NC} /bootstrap, /spec, /planner, /debug"
+    echo -e "  ${GREEN}✓${NC} /bootstrap, /spec, /planner, /debug, /submit-issue"
 }

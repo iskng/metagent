@@ -7,7 +7,7 @@
 #   metagent init [path]                 Initialize agent in repo
 #   metagent start                       Start new task (interview → spec → planning)
 #   metagent task <taskname>             Create task directory and add to queue
-#   metagent finish <stage>              Signal stage completion
+#   METAGENT_SESSION="<session>" metagent finish <stage>  Signal stage completion
 #   metagent run <taskname>              Run loop for a task
 #   metagent queue [taskname]            Add task to queue / show queue
 #   metagent dequeue <taskname>          Remove task from queue
@@ -89,6 +89,7 @@ show_help() {
     echo "Environment variables:"
     echo "  METAGENT_MODEL      Model CLI to use (claude, codex)"
     echo "  METAGENT_AGENT      Agent type to use (code, writer)"
+    echo "  METAGENT_SESSION    Session ID for finish signaling"
     echo ""
     echo "Finish options:"
     echo "  --next STAGE        Override next stage"
@@ -100,7 +101,7 @@ show_help() {
     echo "  metagent --agent writer init         # Initialize writer agent"
     echo "  metagent --model codex run my-task   # Run task with Codex"
     echo "  metagent task my-feature             # Create task (used by model)"
-    echo "  metagent finish spec                 # Signal spec phase complete"
+    echo "  METAGENT_SESSION=\"<session>\" metagent finish spec  # Signal spec phase complete"
     echo "  metagent run my-feature              # Run loop for existing task"
     echo "  metagent queue                       # Show task queue"
 }
@@ -175,13 +176,64 @@ escape_sed_replacement() {
     printf '%s' "$1" | sed -e 's/[&|\\]/\\&/g'
 }
 
+new_session_id() {
+    echo "$(date +%s)-$$"
+}
+
+ensure_session_id() {
+    if [ -z "$METAGENT_SESSION" ]; then
+        METAGENT_SESSION=$(new_session_id)
+        export METAGENT_SESSION
+    fi
+}
+
+resolve_session_id() {
+    if [ -n "$METAGENT_SESSION" ]; then
+        return 0
+    fi
+
+    local agent_root
+    agent_root=$(get_agent_root)
+    local sessions_dir="$agent_root/sessions"
+    if [ ! -d "$sessions_dir" ]; then
+        return 1
+    fi
+
+    local session_ids
+    session_ids=$(find "$sessions_dir" -mindepth 1 -maxdepth 1 -type d -print 2>/dev/null | sed 's|.*/||')
+    local count
+    count=$(printf '%s\n' "$session_ids" | sed '/^$/d' | wc -l | tr -d ' ')
+    if [ "$count" -eq 1 ]; then
+        METAGENT_SESSION="$(printf '%s\n' "$session_ids")"
+        export METAGENT_SESSION
+        return 0
+    fi
+
+    return 1
+}
+
+get_session_dir() {
+    if [ -z "$METAGENT_SESSION" ]; then
+        return 1
+    fi
+    local agent_root
+    agent_root=$(get_agent_root)
+    echo "$agent_root/sessions/$METAGENT_SESSION"
+}
+
+get_marker_file() {
+    local session_dir
+    session_dir=$(get_session_dir) || return 1
+    mkdir -p "$session_dir"
+    echo "$session_dir/marker"
+}
+
 render_prompt() {
     local prompt_file="$1"
     local taskname="$2"
     local repo_root
     repo_root=$(get_repo_root)
-    local repo_escaped
-    repo_escaped=$(escape_sed_replacement "$repo_root")
+    local session_value="${METAGENT_SESSION:-}"
 
     # Check if task has issues status
     local issues_mode=""
@@ -204,10 +256,6 @@ render_prompt() {
             fi
         fi
     fi
-    local issues_escaped
-    issues_escaped=$(escape_sed_replacement "$issues_mode")
-    local issues_header_escaped
-    issues_header_escaped=$(escape_sed_replacement "$issues_header")
 
     # Set parallelism mode based on model
     local parallelism_mode=""
@@ -220,28 +268,15 @@ render_prompt() {
 - Build/test: 1 subagent only
 - plan.md updates: 1 subagent"
     fi
-    local parallelism_escaped
-    parallelism_escaped=$(escape_sed_replacement "$parallelism_mode")
 
+    local perl_script='s/\{repo\}/$ENV{REPO}/g; s/\{session\}/$ENV{SESSION}/g; s/\{issues_header\}/$ENV{ISSUES_HEADER}/g; s/\{issues_mode\}/$ENV{ISSUES_MODE}/g; s/\{parallelism_mode\}/$ENV{PARALLELISM_MODE}/g;'
     if [ -n "$taskname" ]; then
-        local task_escaped
-        task_escaped=$(escape_sed_replacement "$taskname")
-        sed -E \
-            -e "s|{repo}|$repo_escaped|g" \
-            -e "s|{taskname}|$task_escaped|g" \
-            -e "s|{task}|$task_escaped|g" \
-            -e "s|{issues_header}|$issues_header_escaped|g" \
-            -e "s|{issues_mode}|$issues_escaped|g" \
-            -e "s|{parallelism_mode}|$parallelism_escaped|g" \
-            "$prompt_file"
-    else
-        sed -E \
-            -e "s|{repo}|$repo_escaped|g" \
-            -e "s|{issues_header}||g" \
-            -e "s|{issues_mode}||g" \
-            -e "s|{parallelism_mode}|$parallelism_escaped|g" \
-            "$prompt_file"
+        perl_script+=' s/\{taskname\}/$ENV{TASKNAME}/g; s/\{task\}/$ENV{TASK}/g;'
     fi
+
+    REPO="$repo_root" SESSION="$session_value" TASKNAME="$taskname" TASK="$taskname" \
+        ISSUES_HEADER="$issues_header" ISSUES_MODE="$issues_mode" PARALLELISM_MODE="$parallelism_mode" \
+        perl -0pe "$perl_script" "$prompt_file"
 }
 
 find_unique_task() {
@@ -696,9 +731,15 @@ do_finish() {
 
     local queue_file
     local marker_file=""
-    local agent_root
-    agent_root=$(get_agent_root)
-    marker_file="$agent_root/.done_marker"
+    if ! resolve_session_id; then
+        echo -e "${RED}Error: METAGENT_SESSION not set and no unique active session found. Run finish with METAGENT_SESSION=\"<session>\".${NC}"
+        exit 1
+    fi
+    marker_file=$(get_marker_file)
+    if [ -z "$marker_file" ]; then
+        echo -e "${RED}Error: Failed to resolve session marker path.${NC}"
+        exit 1
+    fi
 
     queue_file=$(get_queue_file)
 
@@ -816,9 +857,11 @@ do_start() {
     initial_stage=$(agent_initial_stage)
     local initial_prompt
     initial_prompt=$(agent_prompt_for_stage "$initial_stage" "")
-    local agent_root
-    agent_root=$(get_agent_root)
-    local marker_file="$agent_root/.done_marker"
+    ensure_session_id
+    local marker_file
+    marker_file=$(get_marker_file)
+    local session_dir
+    session_dir=$(dirname "$marker_file")
 
     # Verify metagent is installed
     if [ ! -f "$initial_prompt" ]; then
@@ -831,6 +874,9 @@ do_start() {
 
     cleanup() {
         rm -f "$marker_file"
+        if [ -n "$session_dir" ]; then
+            rmdir "$session_dir" 2>/dev/null || true
+        fi
         # Kill claude if still running (use SIGINT for graceful exit)
         if [ -n "$CLAUDE_PID" ] && kill -0 "$CLAUDE_PID" 2>/dev/null; then
             kill -INT "$CLAUDE_PID" 2>/dev/null || true
@@ -1006,12 +1052,21 @@ run_stage() {
     local stage="$2"
     local prompt_file
     prompt_file=$(agent_prompt_for_stage "$stage" "$taskname")
-    local agent_root
-    agent_root=$(get_agent_root)
-    local marker_file="$agent_root/.done_marker"
+    METAGENT_SESSION=$(new_session_id)
+    export METAGENT_SESSION
+    local marker_file
+    marker_file=$(get_marker_file)
+    local session_dir
+    session_dir=$(dirname "$marker_file")
+
+    cleanup_session() {
+        rm -f "$marker_file"
+        rmdir "$session_dir" 2>/dev/null || true
+    }
 
     if [ ! -f "$prompt_file" ]; then
         echo -e "${RED}Error: Prompt file not found: ${prompt_file}${NC}"
+        cleanup_session
         return 1
     fi
 
@@ -1077,10 +1132,12 @@ $(render_prompt "$prompt_file" "$taskname")"
         rm -f "$marker_file"
         if [ "$MARKER_NEXT" = "completed" ]; then
             echo "[DEBUG] Returning 2 (task complete)" >&2
+            cleanup_session
             return 2  # Task complete
         fi
         if [ -n "$MARKER_NEXT" ]; then
             echo "[DEBUG] Returning 0 (stage complete)" >&2
+            cleanup_session
             return 0  # Stage complete
         fi
         echo "[DEBUG] Marker found but MARKER_NEXT empty, falling through" >&2
@@ -1092,11 +1149,13 @@ $(render_prompt "$prompt_file" "$taskname")"
     if [ "$marker_triggered" = true ]; then
         # We triggered the kill, marker should have been there
         echo "[DEBUG] Returning 1 (marker_triggered but no marker)" >&2
+        cleanup_session
         return 1
     fi
 
     # User interrupted (Ctrl+C) or Claude exited on its own
     echo "[DEBUG] Returning 130 (interrupted)" >&2
+    cleanup_session
     return 130  # Signal interrupted
 }
 
@@ -1226,7 +1285,6 @@ do_run() {
 
     local agent_root
     agent_root=$(get_agent_root)
-    local marker_file="$agent_root/.done_marker"
     local task_dir="$agent_root/tasks/${taskname}"
     local queue_file
     queue_file=$(get_queue_file)
@@ -1262,9 +1320,17 @@ do_run() {
 
     export METAGENT_AGENT="$AGENT"
     export METAGENT_TASK="$taskname"
+    ensure_session_id
+    local marker_file
+    marker_file=$(get_marker_file)
+    local session_dir
+    session_dir=$(dirname "$marker_file")
 
     cleanup() {
         rm -f "$marker_file"
+        if [ -n "$session_dir" ]; then
+            rmdir "$session_dir" 2>/dev/null || true
+        fi
         if [ -n "$taskname" ]; then
             local task_line stage status
             task_line=$(grep "\"task\":\"$taskname\"" "$queue_file" 2>/dev/null || true)
@@ -1400,6 +1466,7 @@ do_review() {
 
     export METAGENT_AGENT="$AGENT"
     export METAGENT_TASK="$taskname"
+    ensure_session_id
 
     # Use agent's preferred model for review stage
     if type agent_model_for_stage &>/dev/null; then
@@ -1424,7 +1491,7 @@ Prioritize investigating this area first, then continue with full review."
     local prompt_text
     prompt_text="Task: $taskname
 
-$(render_prompt "$prompt_file" "$taskname" | sed "s|{focus_section}|$focus_section|g")"
+$(render_prompt "$prompt_file" "$taskname" | FOCUS_SECTION="$focus_section" perl -0pe 's/\{focus_section\}/$ENV{FOCUS_SECTION}/g')"
 
     $(get_cli_cmd) "$prompt_text"
 }
@@ -1460,6 +1527,7 @@ do_spec_review() {
 
     export METAGENT_AGENT="$AGENT"
     export METAGENT_TASK="$taskname"
+    ensure_session_id
 
     # Use agent's preferred model for spec-review stage
     if type agent_model_for_stage &>/dev/null; then

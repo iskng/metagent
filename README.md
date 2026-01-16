@@ -37,9 +37,10 @@ metagent uninstall         # Remove metagent globally
 metagent init [path]       # Initialize agent in repo
 metagent start             # Start new task interactively
 metagent task <name>       # Create task (used by model)
-metagent finish [stage]    # Signal stage/task completion
-metagent finish --next <stage>  # Signal iteration complete, stay in stage
+metagent finish [stage] --session "<session>"    # Signal stage/task completion
+metagent finish --next <stage> --session "<session>"  # Signal iteration complete, stay in stage
 metagent run <name>        # Run loop for a task
+metagent debug [bug...]    # Launch debug prompt with bug context (Codex)
 metagent queue             # Show task queue
 metagent dequeue <name>    # Remove from queue
 metagent run-queue         # Process all queued tasks
@@ -60,7 +61,8 @@ Options:
   │   ├── BOOTSTRAP_PROMPT.md
   │   ├── SPEC_PROMPT.md
   │   ├── PLANNING_PROMPT.md
-  │   └── DEBUG_PROMPT.md
+  │   ├── DEBUG_PROMPT.md
+  │   └── SUBMIT_ISSUE_PROMPT.md
   └── writer/                      # Writer agent prompts
       ├── INIT_PROMPT.md
       ├── PLANNING_PROMPT.md
@@ -70,6 +72,7 @@ Options:
   ├── spec.md                      # /spec (code)
   ├── planner.md                   # /planner (code)
   ├── debug.md                     # /debug (code)
+  ├── submit-issue.md              # /submit-issue (code)
   ├── writer-init.md               # /writer-init
   ├── writer-plan.md               # /writer-plan
   └── writer.md                    # /writer
@@ -130,13 +133,13 @@ your-repo/.agents/writer/
 **Writer agent:** `init → plan ⟷ write → completed`
 
 The code agent uses `--next` to signal iteration vs completion:
-- `metagent finish --next build` - iteration complete, more work remains
-- `metagent finish` - all plan items complete, task done
+- `metagent finish --session "<session>" --next build` - iteration complete, more work remains
+- `metagent finish --session "<session>"` - all plan items complete, task done
 
 The writer agent cycles between `plan` and `write` stages:
-- `metagent finish write --next write` - more pages in section
-- `metagent finish write --next plan` - section done, plan next
-- `metagent finish write` - all sections complete
+- `metagent finish write --session "<session>" --next write` - more pages in section
+- `metagent finish write --session "<session>" --next plan` - section done, plan next
+- `metagent finish write --session "<session>"` - all sections complete
 
 ## Architecture
 

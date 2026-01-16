@@ -104,9 +104,9 @@ init ──────────────────────▶ plan
 ```
 
 **Completion signals:**
-- `metagent finish write --next write` - more pages in current section
-- `metagent finish write --next plan` - section done, plan next one
-- `metagent finish write` - all sections complete
+- `metagent finish write --session "<session>" --next write` - more pages in current section
+- `metagent finish write --session "<session>" --next plan` - section done, plan next one
+- `metagent finish write --session "<session>"` - all sections complete
 
 ---
 
@@ -230,9 +230,9 @@ metagent --agent writer queue
 metagent --agent writer run my-book
 
 # Signal stage completion
-metagent finish write --next write   # more pages
-metagent finish write --next plan    # next section
-metagent finish write                # all done
+metagent finish write --session "<session>" --next write   # more pages
+metagent finish write --session "<session>" --next plan    # next section
+metagent finish write --session "<session>"                # all done
 ```
 
 ---

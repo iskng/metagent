@@ -249,7 +249,7 @@ After all files are generated:
 3. **Signal completion:**
 
 ```bash
-cd "{repo}" && METAGENT_TASK="{task}" metagent --agent writer finish init
+cd "{repo}" && METAGENT_TASK="{task}" metagent --agent writer finish init --session "{session}"
 ```
 
 ---

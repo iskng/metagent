@@ -1,0 +1,970 @@
+use anyhow::{bail, Context, Result};
+use owo_colors::OwoColorize;
+use std::env;
+use std::fs;
+use std::io::Read;
+use std::os::unix::fs as unix_fs;
+use std::path::{Path, PathBuf};
+use std::process::{Command, Stdio};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::thread;
+use std::time::Duration;
+
+use crate::agent::AgentKind;
+use crate::model::Model;
+use crate::prompt::{issues_text, parallelism_text, render_prompt, PromptContext};
+use crate::state::{
+    claim_task, create_session, create_task_state, list_tasks, load_session, load_task, save_session,
+    update_session, update_task, SessionState, SessionStatus, TaskState, TaskStatus,
+};
+use crate::util::{
+    confirm, get_agent_root, home_dir, now_iso, read_text, task_dir, task_state_path,
+    validate_task_name, write_text,
+};
+
+pub static INTERRUPTED: AtomicBool = AtomicBool::new(false);
+
+#[derive(Clone, Debug)]
+pub struct ModelChoice {
+    pub model: Model,
+    pub explicit: bool,
+}
+
+#[derive(Clone, Debug)]
+pub struct CommandContext {
+    pub agent: AgentKind,
+    pub model_choice: ModelChoice,
+    pub repo_root: PathBuf,
+    pub agent_root: PathBuf,
+    pub prompt_root: PathBuf,
+    pub host: String,
+}
+
+impl CommandContext {
+    pub fn new(agent: AgentKind, model_choice: ModelChoice, repo_root: PathBuf) -> Result<Self> {
+        let agent_root = get_agent_root(&repo_root, agent.name())?;
+        let prompt_root = home_dir()?.join(".metagent").join(agent.name());
+        let host = hostname::get()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .to_string();
+        Ok(Self {
+            agent,
+            model_choice,
+            repo_root,
+            agent_root,
+            prompt_root,
+            host,
+        })
+    }
+}
+
+pub fn cmd_install() -> Result<()> {
+    let home = home_dir()?;
+    let bin_dir = home.join(".local/bin");
+    fs::create_dir_all(&bin_dir)?;
+    let exe = env::current_exe().context("Unable to locate current executable")?;
+    let dest = bin_dir.join("metagent");
+    fs::copy(&exe, &dest).context("Failed to install metagent binary")?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut perms = fs::metadata(&dest)?.permissions();
+        perms.set_mode(0o755);
+        fs::set_permissions(&dest, perms)?;
+    }
+
+    // Verify the installed binary works (catches macOS code signing issues)
+    let verify = Command::new(&dest)
+        .arg("--version")
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status();
+    match verify {
+        Ok(status) if !status.success() => {
+            let code = status.code().unwrap_or(-1);
+            if code == 137 || code == -9 {
+                bail!(
+                    "Installed binary was killed (exit {}). This may be a macOS code signing issue.\n\
+                     Try: xattr -cr {} && codesign -s - {}",
+                    code, dest.display(), dest.display()
+                );
+            }
+        }
+        Err(e) => {
+            bail!("Failed to verify installed binary: {}", e);
+        }
+        _ => {}
+    }
+
+    let metagent_dir = home.join(".metagent");
+    let claude_commands = home.join(".claude/commands");
+    let codex_commands = home.join(".codex/prompts");
+    fs::create_dir_all(&claude_commands)?;
+    fs::create_dir_all(&codex_commands)?;
+
+    for agent in [AgentKind::Code, AgentKind::Writer] {
+        let agent_dir = metagent_dir.join(agent.name());
+        fs::create_dir_all(&agent_dir)?;
+        for (file, content) in agent.install_prompts() {
+            write_text(&agent_dir.join(file), content)?;
+        }
+
+        for (link_name, prompt_file) in agent.slash_commands() {
+            let target = agent_dir.join(prompt_file);
+            let claude_link = claude_commands.join(link_name);
+            let codex_link = codex_commands.join(link_name);
+            ensure_symlink(&target, &claude_link)?;
+            ensure_symlink(&target, &codex_link)?;
+        }
+    }
+
+    if let Ok(path) = env::var("PATH") {
+        let bin_str = bin_dir.display().to_string();
+        if !path.split(':').any(|entry| entry == bin_str) {
+            println!("Note: {} is not in your PATH", bin_dir.display());
+            println!("Add this to your shell profile:");
+            println!("  export PATH=\"$HOME/.local/bin:$PATH\"");
+        }
+    }
+
+    println!("Installed metagent to {}", dest.display());
+    Ok(())
+}
+
+pub fn cmd_uninstall() -> Result<()> {
+    let home = home_dir()?;
+    let bin_dir = home.join(".local/bin/metagent");
+    let metagent_dir = home.join(".metagent");
+    let claude_commands = home.join(".claude/commands");
+    let codex_commands = home.join(".codex/prompts");
+
+    if bin_dir.exists() {
+        fs::remove_file(&bin_dir)?;
+        println!("Removed {}", bin_dir.display());
+    }
+
+    for dir in [&claude_commands, &codex_commands] {
+        if !dir.exists() {
+            continue;
+        }
+        for entry in fs::read_dir(dir)? {
+            let entry = entry?;
+            let path = entry.path();
+            if !path.is_file() {
+                continue;
+            }
+            if let Ok(target) = fs::read_link(&path) {
+                if target.starts_with(&metagent_dir) {
+                    fs::remove_file(&path)?;
+                }
+            }
+        }
+    }
+
+    if metagent_dir.exists() {
+        fs::remove_dir_all(&metagent_dir)?;
+        println!("Removed {}", metagent_dir.display());
+    }
+
+    Ok(())
+}
+
+pub fn cmd_init(agent: AgentKind, target: Option<PathBuf>, model_choice: ModelChoice) -> Result<()> {
+    let target = match target {
+        Some(path) => fs::canonicalize(path)?,
+        None => env::current_dir()?,
+    };
+
+    if !target.join(".git").is_dir() {
+        let proceed = confirm("Warning: Target is not a git repository. Continue? (y/N) ")?;
+        if !proceed {
+            println!("Aborted.");
+            return Ok(());
+        }
+    }
+
+    let agent_dir = target.join(".agents").join(agent.name());
+    let mut overwrite = false;
+    if agent_dir.exists() {
+        overwrite = confirm(&format!(
+            "Warning: .agents/{}/ already exists. Overwrite templates? (y/N) ",
+            agent.name()
+        ))?;
+        if !overwrite {
+            println!("Aborted.");
+            return Ok(());
+        }
+    }
+
+    fs::create_dir_all(agent_dir.join("tasks"))?;
+    for (file, content) in agent.template_files() {
+        let dest = agent_dir.join(file);
+        if dest.exists() && !overwrite {
+            continue;
+        }
+        write_text(&dest, content)?;
+    }
+
+    println!("Initialized {} agent in {}", agent.name(), target.display());
+
+    if agent == AgentKind::Code {
+        let ctx = CommandContext::new(agent, model_choice, target)?;
+        if bootstrap_needed(&ctx.agent_root)? {
+            println!("Bootstrap not detected. Running bootstrap prompt...");
+            run_bootstrap(&ctx)?;
+        }
+    }
+    Ok(())
+}
+
+pub fn cmd_task(ctx: &CommandContext, task: &str) -> Result<()> {
+    validate_task_name(task)?;
+    let task_path = task_state_path(&ctx.agent_root, task);
+    let task_dir_path = task_dir(&ctx.agent_root, task);
+
+    if task_path.exists() {
+        let task_state = load_task(&task_path)?;
+        println!("Task '{}' already exists", task);
+        println!("  Stage: {}", task_state.stage);
+        println!("  Directory: {}", task_dir_path.display());
+        return Ok(());
+    }
+
+    ctx.agent.create_task(&task_dir_path, task)?;
+    let timestamp = now_iso();
+    create_task_state(&ctx.agent_root, ctx.agent.name(), task, ctx.agent.initial_stage(), &timestamp)?;
+
+    println!("Created task: {}", task);
+    println!("  Directory: {}", task_dir_path.display());
+    println!("  Stage: {}", ctx.agent.initial_stage());
+    Ok(())
+}
+
+pub fn cmd_queue(ctx: &CommandContext, task: Option<&str>) -> Result<()> {
+    if let Some(task) = task {
+        validate_task_name(task)?;
+        let task_path = task_state_path(&ctx.agent_root, task);
+        if task_path.exists() {
+            let task_state = load_task(&task_path)?;
+            println!("Task '{}' already exists", task);
+            println!("  Stage: {}", task_state.stage);
+            return Ok(());
+        }
+
+        let dir = task_dir(&ctx.agent_root, task);
+        if !dir.exists() {
+            bail!("Task '{}' not found. Create it with 'metagent task {}'", task, task);
+        }
+
+        let timestamp = now_iso();
+        create_task_state(&ctx.agent_root, ctx.agent.name(), task, ctx.agent.initial_stage(), &timestamp)?;
+        println!("Queued '{}' (stage: {})", task, ctx.agent.initial_stage());
+        return Ok(());
+    }
+
+    let tasks = list_tasks(&ctx.agent_root);
+    if tasks.is_empty() {
+        println!("{}", "No tasks".dimmed());
+        return Ok(());
+    }
+
+    println!("{}", "Tasks:".bold());
+    for stage in ctx.agent.stages() {
+        if *stage == "completed" {
+            continue;
+        }
+        let mut stage_tasks: Vec<&TaskState> = tasks.iter().filter(|t| t.stage == *stage).collect();
+        if stage_tasks.is_empty() {
+            continue;
+        }
+        stage_tasks.sort_by(|a, b| a.added_at.cmp(&b.added_at));
+        println!("{}:", ctx.agent.stage_label(stage));
+        for task in stage_tasks {
+            println!("  {} {}", task.status.styled(), task.task);
+        }
+        println!();
+    }
+
+    let completed: Vec<&TaskState> = tasks.iter().filter(|t| t.stage == "completed").collect();
+    if !completed.is_empty() {
+        println!("{}:", ctx.agent.stage_label("completed").dimmed());
+        for task in completed {
+            println!("  {} {}", task.status.styled(), task.task.dimmed());
+        }
+    }
+
+    Ok(())
+}
+
+pub fn cmd_dequeue(ctx: &CommandContext, task: &str) -> Result<()> {
+    validate_task_name(task)?;
+    let dir = task_dir(&ctx.agent_root, task);
+    if !dir.exists() {
+        println!("Task '{}' not found", task);
+        return Ok(());
+    }
+    fs::remove_dir_all(&dir)?;
+    println!("Removed '{}'", task);
+    Ok(())
+}
+
+pub fn cmd_start(ctx: &CommandContext) -> Result<()> {
+    let mut task_name: Option<String> = None;
+    let mut stage = ctx.agent.initial_stage().to_string();
+    let handoff_stage = ctx.agent.handoff_stage();
+
+    loop {
+        if let Some(task) = task_name.as_ref() {
+            let task_path = task_state_path(&ctx.agent_root, task);
+            if task_path.exists() {
+                update_task(&task_path, |task_state| {
+                    task_state.status = TaskStatus::Running;
+                    task_state.updated_at = now_iso();
+                    Ok(())
+                })?;
+            }
+        }
+
+        let result = run_stage(ctx, task_name.as_deref(), &stage, None)?;
+        match result {
+            StageResult::Finished(session) => {
+                if task_name.is_none() {
+                    if let Some(task) = session.task.clone() {
+                        task_name = Some(task);
+                    }
+                }
+                let next_stage = session
+                    .next_stage
+                    .clone()
+                    .or_else(|| ctx.agent.next_stage(&stage).map(|s| s.to_string()));
+                if let Some(next_stage) = next_stage {
+                    if let Some(handoff) = handoff_stage {
+                        if next_stage == handoff {
+                            if let Some(task) = task_name.as_ref() {
+                                println!("Task '{}' is ready.", task);
+                                println!("Run 'metagent run {}' or 'metagent run-queue' to start.", task);
+                            }
+                            return Ok(());
+                        }
+                    }
+                    if next_stage == "completed" {
+                        println!("Task completed.");
+                        return Ok(());
+                    }
+                    stage = next_stage;
+                    continue;
+                }
+
+                bail!("No next stage provided.");
+            }
+            StageResult::Interrupted => {
+                if let Some(task) = task_name.as_ref() {
+                    let task_path = task_state_path(&ctx.agent_root, task);
+                    if task_path.exists() {
+                        update_task(&task_path, |task_state| {
+                            task_state.status = TaskStatus::Incomplete;
+                            task_state.updated_at = now_iso();
+                            Ok(())
+                        })?;
+                    }
+                }
+                return Ok(());
+            }
+            StageResult::NoFinish => {
+                if let Some(task) = task_name.as_ref() {
+                    let task_path = task_state_path(&ctx.agent_root, task);
+                    if task_path.exists() {
+                        update_task(&task_path, |task_state| {
+                            task_state.status = TaskStatus::Failed;
+                            task_state.updated_at = now_iso();
+                            Ok(())
+                        })?;
+                    }
+                    bail!("Task '{}' exited without completing stage {}", task, stage);
+                } else {
+                    bail!("Interview ended without creating a task");
+                }
+            }
+        }
+    }
+}
+
+pub fn cmd_run(ctx: &CommandContext, task: &str) -> Result<()> {
+    validate_task_name(task)?;
+    let task_path = task_state_path(&ctx.agent_root, task);
+    if !task_path.exists() {
+        bail!("Task '{}' not found. Run 'metagent queue {}' to add it first.", task, task);
+    }
+
+    loop {
+        let task_state = load_task(&task_path)?;
+        if task_state.stage == "completed" {
+            println!("Task '{}' completed.", task);
+            return Ok(());
+        }
+
+        update_task(&task_path, |task_state| {
+            task_state.status = TaskStatus::Running;
+            task_state.updated_at = now_iso();
+            Ok(())
+        })?;
+
+        let result = run_stage(ctx, Some(task), &task_state.stage, None)?;
+        match result {
+            StageResult::Finished(_) => continue,
+            StageResult::Interrupted => {
+                update_task(&task_path, |task_state| {
+                    task_state.status = TaskStatus::Incomplete;
+                    task_state.updated_at = now_iso();
+                    Ok(())
+                })?;
+                return Ok(());
+            }
+            StageResult::NoFinish => {
+                update_task(&task_path, |task_state| {
+                    task_state.status = TaskStatus::Incomplete;
+                    task_state.updated_at = now_iso();
+                    Ok(())
+                })?;
+                println!("Session ended. Run 'metagent run {}' to continue.", task);
+                return Ok(());
+            }
+        }
+    }
+}
+
+pub fn cmd_run_queue(ctx: &CommandContext) -> Result<()> {
+    let tasks = list_tasks(&ctx.agent_root);
+    if tasks.is_empty() {
+        println!("No tasks");
+        return Ok(());
+    }
+
+    for task in tasks.iter().filter(|t| t.status == TaskStatus::Running && t.stage != "completed") {
+        let task_path = task_state_path(&ctx.agent_root, &task.task);
+        update_task(&task_path, |task_state| {
+            task_state.status = TaskStatus::Incomplete;
+            task_state.updated_at = now_iso();
+            Ok(())
+        })?;
+    }
+
+    loop {
+        let tasks = list_tasks(&ctx.agent_root);
+        let mut candidate: Option<TaskState> = None;
+        for stage in ctx.agent.stages() {
+            if *stage == "completed" {
+                continue;
+            }
+            let mut stage_tasks: Vec<TaskState> = tasks
+                .iter()
+                .filter(|t| t.stage == *stage && matches!(t.status, TaskStatus::Pending | TaskStatus::Incomplete))
+                .cloned()
+                .collect();
+            if stage_tasks.is_empty() {
+                continue;
+            }
+            stage_tasks.sort_by(|a, b| a.added_at.cmp(&b.added_at));
+            candidate = stage_tasks.into_iter().next();
+            break;
+        }
+
+        let Some(task_state) = candidate else {
+            println!("Queue processing complete.");
+            return Ok(());
+        };
+
+        let claim = claim_task(&ctx.agent_root, &task_state.task, 3600, &ctx.host)?;
+        let Some(_guard) = claim else {
+            continue;
+        };
+
+        let task_path = task_state_path(&ctx.agent_root, &task_state.task);
+        update_task(&task_path, |task_state| {
+            task_state.status = TaskStatus::Running;
+            task_state.updated_at = now_iso();
+            Ok(())
+        })?;
+
+        let result = run_stage(ctx, Some(&task_state.task), &task_state.stage, None)?;
+        match result {
+            StageResult::Finished(_) => {}
+            StageResult::Interrupted => {
+                update_task(&task_path, |task_state| {
+                    task_state.status = TaskStatus::Incomplete;
+                    task_state.updated_at = now_iso();
+                    Ok(())
+                })?;
+                return Ok(());
+            }
+            StageResult::NoFinish => {
+                update_task(&task_path, |task_state| {
+                    task_state.status = TaskStatus::Failed;
+                    task_state.updated_at = now_iso();
+                    Ok(())
+                })?;
+            }
+        }
+    }
+}
+
+pub fn cmd_finish(
+    ctx: &CommandContext,
+    stage: Option<String>,
+    next_stage: Option<String>,
+    session_id: Option<String>,
+    task_arg: Option<String>,
+) -> Result<()> {
+    let stage = stage.unwrap_or_else(|| "task".to_string());
+    if !ctx.agent.valid_finish_stages().contains(&stage.as_str()) {
+        bail!("Unknown stage: {}", stage);
+    }
+
+    if let Some(ref next_stage) = next_stage {
+        if !ctx.agent.stages().contains(&next_stage.as_str()) {
+            bail!("Unknown next stage: {}", next_stage);
+        }
+    }
+
+    let session_id = crate::state::resolve_session_id(&ctx.agent_root, session_id)?;
+    let session_path = crate::util::session_state_path(&ctx.agent_root, &session_id);
+    if !session_path.exists() {
+        bail!("Session not found: {}", session_id);
+    }
+
+    let mut session = load_session(&session_path)?;
+
+    let task = task_arg
+        .or_else(|| env::var("METAGENT_TASK").ok())
+        .or_else(|| session.task.clone());
+
+    let task = if stage != "task" {
+        if let Some(task) = task {
+            task
+        } else {
+            find_unique_task(&ctx.agent_root, &stage)?.ok_or_else(|| {
+                anyhow::anyhow!("METAGENT_TASK not set and no unique task found for stage '{}'", stage)
+            })?
+        }
+    } else {
+        task.unwrap_or_default()
+    };
+
+    let resolved_next = if let Some(next) = next_stage.clone() {
+        next
+    } else if stage == "task" {
+        "completed".to_string()
+    } else {
+        ctx.agent
+            .next_stage(&stage)
+            .map(|s| s.to_string())
+            .ok_or_else(|| anyhow::anyhow!("No next stage for {}", stage))?
+    };
+
+    session.status = SessionStatus::Finished;
+    session.finished_at = Some(now_iso());
+    session.next_stage = Some(resolved_next.clone());
+    if !task.is_empty() {
+        session.task = Some(task.clone());
+    }
+    save_session(&session_path, &session)?;
+
+    if !task.is_empty() {
+        let task_path = task_state_path(&ctx.agent_root, &task);
+        if !task_path.exists() {
+            bail!("Task '{}' not found", task);
+        }
+        update_task(&task_path, |task_state| {
+            task_state.stage = resolved_next.clone();
+            task_state.updated_at = now_iso();
+            task_state.last_session = Some(session_id.clone());
+            task_state.status = determine_next_status(task_state.status.clone(), &stage, next_stage.is_some(), &resolved_next);
+            Ok(())
+        })?;
+    }
+
+    println!("Advanced stage to {}", resolved_next);
+    Ok(())
+}
+
+pub fn cmd_review(ctx: &CommandContext, task: &str, focus: Option<String>) -> Result<()> {
+    validate_task_name(task)?;
+    let task_path = task_state_path(&ctx.agent_root, task);
+    if !task_path.exists() {
+        bail!("Task '{}' not found", task);
+    }
+    let focus_section = focus.map(|text| {
+        format!(
+            "## FOCUS AREA\n\nThe user has requested special attention to:\n> {text}\n\nPrioritize investigating this area first, then continue with full review."
+        )
+    });
+    run_stage(
+        ctx,
+        Some(task),
+        "review",
+        focus_section.as_deref(),
+    )?;
+    Ok(())
+}
+
+pub fn cmd_spec_review(ctx: &CommandContext, task: &str) -> Result<()> {
+    validate_task_name(task)?;
+    let task_path = task_state_path(&ctx.agent_root, task);
+    if !task_path.exists() {
+        bail!("Task '{}' not found", task);
+    }
+    run_stage(ctx, Some(task), "spec-review", None)?;
+    Ok(())
+}
+
+pub fn cmd_debug(
+    ctx: &CommandContext,
+    bug: Vec<String>,
+    file: Option<PathBuf>,
+    stdin: bool,
+) -> Result<()> {
+    if file.is_some() && stdin {
+        bail!("Use --file or --stdin, not both");
+    }
+
+    let bug_text = if stdin {
+        let mut input = String::new();
+        std::io::stdin().read_to_string(&mut input)?;
+        input
+    } else if let Some(path) = file {
+        read_text(&path)?
+    } else if !bug.is_empty() {
+        bug.join(" ")
+    } else {
+        String::new()
+    };
+
+    let prompt = load_prompt_by_name(ctx, "DEBUG_PROMPT.md")?;
+    let repo_root_str = ctx.repo_root.display().to_string();
+    let parallelism_mode = parallelism_text(Model::Codex);
+    let context = PromptContext {
+        repo_root: &repo_root_str,
+        task: None,
+        session: None,
+        issues_header: "",
+        issues_mode: "",
+        parallelism_mode: &parallelism_mode,
+        focus_section: "",
+    };
+    let mut rendered = render_prompt(&prompt, &context);
+    if !bug_text.trim().is_empty() {
+        let bug_block = format!(
+            "## Bug Report & Logs\n{}\n\n",
+            bug_text.trim()
+        );
+        rendered = format!("{bug_block}{rendered}");
+    }
+
+    let (cmd, args) = Model::Codex.command();
+    let status = Command::new(cmd)
+        .args(args)
+        .arg(rendered)
+        .stdin(Stdio::inherit())
+        .stdout(Stdio::inherit())
+        .stderr(Stdio::inherit())
+        .current_dir(&ctx.repo_root)
+        .env("METAGENT_AGENT", ctx.agent.name())
+        .env("METAGENT_REPO_ROOT", ctx.repo_root.as_os_str())
+        .status()
+        .context("Failed to start debug model")?;
+
+    if !status.success() {
+        bail!("Debug command failed");
+    }
+    Ok(())
+}
+
+fn run_stage(
+    ctx: &CommandContext,
+    task: Option<&str>,
+    stage: &str,
+    focus_section: Option<&str>,
+) -> Result<StageResult> {
+    let task_status = task.and_then(|task_name| {
+        let path = task_state_path(&ctx.agent_root, task_name);
+        load_task(&path).ok().map(|task| task.status)
+    });
+    let model = resolve_model(&ctx.model_choice, ctx.agent, stage, task_status.as_ref());
+
+    let session_id = crate::state::new_session_id();
+    let session = create_session(
+        &ctx.agent_root,
+        &session_id,
+        ctx.agent.name(),
+        stage,
+        task,
+        &ctx.repo_root,
+        &ctx.host,
+    )?;
+
+    let prompt_template = load_stage_prompt(ctx, stage, task)?;
+    let (issues_header, issues_mode) = issues_text(ctx.agent, task_status.as_ref(), task);
+    let parallelism_mode = parallelism_text(model);
+    let focus_section = focus_section.unwrap_or("");
+    let repo_root_str = ctx.repo_root.display().to_string();
+    let prompt_context = PromptContext {
+        repo_root: &repo_root_str,
+        task,
+        session: Some(&session.session_id),
+        issues_header: &issues_header,
+        issues_mode: &issues_mode,
+        parallelism_mode: &parallelism_mode,
+        focus_section,
+    };
+
+    let mut rendered = render_prompt(&prompt_template, &prompt_context);
+    if let Some(task) = task {
+        rendered = format!("Task: {task}\n\n{rendered}");
+    }
+
+    let (cmd, args) = model.command();
+    let mut child = Command::new(cmd);
+    child.args(args);
+    child.arg(rendered);
+    child.stdin(Stdio::inherit());
+    child.stdout(Stdio::inherit());
+    child.stderr(Stdio::inherit());
+    child.current_dir(&ctx.repo_root);
+    child.env("METAGENT_AGENT", ctx.agent.name());
+    child.env("METAGENT_SESSION", &session_id);
+    child.env("METAGENT_REPO_ROOT", ctx.repo_root.as_os_str());
+    if let Some(task) = task {
+        child.env("METAGENT_TASK", task);
+    }
+    let mut child = child.spawn().context("Failed to start model process")?;
+
+    let session_path = crate::util::session_state_path(&ctx.agent_root, &session_id);
+    loop {
+        if INTERRUPTED.load(Ordering::SeqCst) {
+            send_sigint(&mut child);
+            return Ok(StageResult::Interrupted);
+        }
+
+        if let Ok(session_state) = load_session(&session_path) {
+            if session_state.status == SessionStatus::Finished {
+                send_sigint(&mut child);
+                let _ = child.wait();
+                return Ok(StageResult::Finished(session_state));
+            }
+        }
+
+        if let Some(_status) = child.try_wait()? {
+            break;
+        }
+
+        thread::sleep(Duration::from_millis(500));
+    }
+
+    if let Ok(session_state) = load_session(&session_path) {
+        if session_state.status == SessionStatus::Finished {
+            return Ok(StageResult::Finished(session_state));
+        }
+    }
+
+    update_session(&session_path, |session_state| {
+        session_state.status = SessionStatus::Failed;
+        session_state.finished_at = Some(now_iso());
+        Ok(())
+    })
+    .ok();
+
+    Ok(StageResult::NoFinish)
+}
+
+fn bootstrap_needed(agent_root: &Path) -> Result<bool> {
+    let agents_path = agent_root.join("AGENTS.md");
+    let spec_path = agent_root.join("SPEC.md");
+    let tech_path = agent_root.join("TECHNICAL_STANDARDS.md");
+
+    if !agents_path.exists() || !spec_path.exists() || !tech_path.exists() {
+        return Ok(true);
+    }
+
+    let agents = read_text(&agents_path).unwrap_or_default();
+    let spec = read_text(&spec_path).unwrap_or_default();
+    let tech = read_text(&tech_path).unwrap_or_default();
+
+    let agents_markers = [
+        "{PROJECT_NAME}",
+        "{LANGUAGE}",
+        "{FRAMEWORK}",
+        "{BUILD_TOOL}",
+        "{TEST_FRAMEWORK}",
+        "{PACKAGE_MANAGER}",
+    ];
+    let spec_markers = [
+        "{PROJECT_DESCRIPTION}",
+        "{WHY_THIS_EXISTS}",
+        "{ARCHITECTURE_DIAGRAM}",
+        "{DATA_FLOW_DESCRIPTION}",
+        "{MAIN_FEATURES}",
+    ];
+    let tech_markers = [
+        "{LANGUAGE}",
+        "{LANGUAGE_VERSION}",
+        "{STYLE_GUIDE}",
+        "{FILE_CONVENTION}",
+        "{ASYNC_PATTERNS}",
+    ];
+
+    let needs_agents = agents_markers.iter().any(|marker| agents.contains(marker));
+    let needs_spec = spec_markers.iter().any(|marker| spec.contains(marker));
+    let needs_tech = tech_markers.iter().any(|marker| tech.contains(marker));
+
+    Ok(needs_agents || needs_spec || needs_tech)
+}
+
+fn run_bootstrap(ctx: &CommandContext) -> Result<()> {
+    let prompt = load_prompt_by_name(ctx, "BOOTSTRAP_PROMPT.md")?;
+    let model = ctx.model_choice.model;
+    let parallelism_mode = parallelism_text(model);
+    let repo_root_str = ctx.repo_root.display().to_string();
+    let context = PromptContext {
+        repo_root: &repo_root_str,
+        task: None,
+        session: None,
+        issues_header: "",
+        issues_mode: "",
+        parallelism_mode: &parallelism_mode,
+        focus_section: "",
+    };
+    let prompt_text = render_prompt(&prompt, &context);
+
+    let (cmd, args) = model.command();
+    let status = Command::new(cmd)
+        .args(args)
+        .arg(prompt_text)
+        .stdin(Stdio::inherit())
+        .stdout(Stdio::inherit())
+        .stderr(Stdio::inherit())
+        .current_dir(&ctx.repo_root)
+        .env("METAGENT_AGENT", ctx.agent.name())
+        .env("METAGENT_REPO_ROOT", ctx.repo_root.as_os_str())
+        .status()
+        .context("Failed to start bootstrap model")?;
+
+    if !status.success() {
+        bail!("Bootstrap command failed");
+    }
+    Ok(())
+}
+
+fn resolve_model(
+    choice: &ModelChoice,
+    agent: AgentKind,
+    stage: &str,
+    task_status: Option<&TaskStatus>,
+) -> Model {
+    if choice.explicit {
+        return choice.model;
+    }
+    if task_status == Some(&TaskStatus::Issues) {
+        return Model::Codex;
+    }
+    if let Some(stage_model) = agent.model_for_stage(stage) {
+        return stage_model;
+    }
+    choice.model
+}
+
+fn load_stage_prompt(ctx: &CommandContext, stage: &str, task: Option<&str>) -> Result<String> {
+    let prompt_path = ctx
+        .agent
+        .prompt_file_for_stage(stage, task, &ctx.repo_root)
+        .ok_or_else(|| anyhow::anyhow!("No prompt for stage: {}", stage))?;
+
+    if prompt_path.is_absolute() || prompt_path.components().count() > 1 {
+        if !prompt_path.exists() {
+            bail!("Prompt file not found: {}", prompt_path.display());
+        }
+        return read_text(&prompt_path);
+    }
+
+    let prompt_file = ctx.prompt_root.join(&prompt_path);
+    if prompt_file.exists() {
+        return read_text(&prompt_file);
+    }
+
+    let file_name = prompt_path
+        .file_name()
+        .map(|name| name.to_string_lossy().to_string())
+        .unwrap_or_default();
+    if let Some(embedded) = ctx.agent.embedded_prompt(&file_name) {
+        return Ok(embedded.to_string());
+    }
+
+    bail!("Prompt file not found: {}", prompt_file.display())
+}
+
+fn load_prompt_by_name(ctx: &CommandContext, name: &str) -> Result<String> {
+    let prompt_file = ctx.prompt_root.join(name);
+    if prompt_file.exists() {
+        return read_text(&prompt_file);
+    }
+    if let Some(embedded) = ctx.agent.embedded_prompt(name) {
+        return Ok(embedded.to_string());
+    }
+    bail!("Prompt file not found: {}", prompt_file.display());
+}
+
+fn find_unique_task(agent_root: &Path, stage: &str) -> Result<Option<String>> {
+    let tasks = list_tasks(agent_root);
+    let mut matches: Vec<TaskState> = tasks
+        .into_iter()
+        .filter(|task| task.stage == stage && matches!(task.status, TaskStatus::Running | TaskStatus::Pending))
+        .collect();
+    if matches.len() == 1 {
+        return Ok(Some(matches.remove(0).task));
+    }
+    Ok(None)
+}
+
+fn determine_next_status(
+    current: TaskStatus,
+    stage: &str,
+    override_next: bool,
+    next_stage: &str,
+) -> TaskStatus {
+    if next_stage == "completed" {
+        return TaskStatus::Completed;
+    }
+    if current == TaskStatus::Issues {
+        return TaskStatus::Issues;
+    }
+    if stage == "review" && override_next {
+        return TaskStatus::Issues;
+    }
+    TaskStatus::Pending
+}
+
+fn ensure_symlink(target: &Path, link_path: &Path) -> Result<()> {
+    if link_path.exists() || link_path.is_symlink() {
+        fs::remove_file(link_path).ok();
+    }
+    if let Some(parent) = link_path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    unix_fs::symlink(target, link_path)
+        .with_context(|| format!("Failed to create symlink {}", link_path.display()))?;
+    Ok(())
+}
+
+fn send_sigint(child: &mut std::process::Child) {
+    let pid = child.id();
+    unsafe {
+        libc::kill(pid as i32, libc::SIGINT);
+    }
+}
+
+#[derive(Debug)]
+enum StageResult {
+    Finished(SessionState),
+    Interrupted,
+    NoFinish,
+}

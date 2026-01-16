@@ -12,7 +12,7 @@
 7. Before completing spec phase verify: Types are EXACT, Signatures are COMPLETE, Examples are CONCRETE, Edge cases are EXHAUSTIVE, Errors are SPECIFIC, Dependencies are MAPPED, Success criteria are TESTABLE.
 8. After specs are complete and validated, run:
 bash
-cd "{repo}" && METAGENT_TASK="{task}" metagent --agent code finish spec
+cd "{repo}" && METAGENT_TASK="{task}" metagent --agent code finish spec --session "{session}"
 
 999. Confirm understanding with user before creating task.
 9999. Complete specs - no placeholders. All fields listed, all constraints specified.
@@ -20,6 +20,6 @@ cd "{repo}" && METAGENT_TASK="{task}" metagent --agent code finish spec
 999999. ALWAYS document findings immediately in working notes.md.
 9999999. If you find inconsistencies in existing code patterns, document them in the spec for resolution during implementation.
 99999999. FULL SPECIFICATIONS ONLY. NO PLACEHOLDER SPECS. NO STUB DESCRIPTIONS. NO TODO COMMENTS. WE WANT COMPLETE SPECIFICATIONS. DO IT OR I WILL YELL AT YOU
-999999999. WHEN SPECS COMPLETE: run cd "{repo}" && METAGENT_TASK="{task}" metagent --agent code finish spec to signal spec phase complete.
+999999999. WHEN SPECS COMPLETE: run cd "{repo}" && METAGENT_TASK="{task}" metagent --agent code finish spec --session "{session}" to signal spec phase complete.
 {issues_mode}
 {parallelism_mode}

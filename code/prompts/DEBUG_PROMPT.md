@@ -31,7 +31,8 @@ Study these files first (in order):
 - @.agents/code/SPEC.md - **Project specification** (what this project is and does)
 - @.agents/code/AGENTS.md - Project build commands and structure
 - @.agents/code/TECHNICAL_STANDARDS.md - Coding patterns to follow
-- @.agents/code/issues.md - Outstanding bugs log (if exists)
+- @.agents/code/inbox/ - Unassigned issues (if exists)
+- @.agents/code/inbox.md - Inbox index (if exists)
 
 ---
 
@@ -109,9 +110,9 @@ Search each task's spec/ for matches
 ```
 
 If no matching task found:
-- This may be infrastructure/framework bug
-- Or a new task needs to be created
-- Ask user: "This error doesn't seem related to existing tasks. Should I create a new task for this bug?"
+- Treat as an unassigned bug and create an inbox issue in `.agents/code/inbox/`
+- Update `.agents/code/inbox.md` with the new issue
+- Ask the user whether to create a new task or hotfix later, but **do not** create a task unless asked
 
 ### 2.3 Load Task Context
 
@@ -180,9 +181,13 @@ Error trace analysis:
 
 ### 4.1 Create Issue File
 
+If a task is identified, store the issue under that task. If no task is identified, store it in the inbox.
+
 Create directory if needed:
 ```bash
 mkdir -p .agents/code/tasks/{taskname}/issues
+# OR, if unassigned:
+mkdir -p .agents/code/inbox
 ```
 
 Generate bug title (lowercase, kebab-case):
@@ -190,7 +195,11 @@ Generate bug title (lowercase, kebab-case):
 - `timeout-on-large-payload`
 - `validation-allows-empty-string`
 
-Create `.agents/code/tasks/{taskname}/issues/{taskname}-{bug-title}.md`:
+Create the issue file:
+- Task issue: `.agents/code/tasks/{taskname}/issues/{taskname}-{bug-title}.md`
+- Inbox issue: `.agents/code/inbox/{bug-title}.md`
+
+Use this template:
 
 ```markdown
 # Bug: {Human-Readable Title}
@@ -198,7 +207,8 @@ Create `.agents/code/tasks/{taskname}/issues/{taskname}-{bug-title}.md`:
 > Created: {date}
 > Status: OPEN
 > Priority: {Critical/High/Medium/Low}
-> Task: {taskname}
+> Task: {taskname | unassigned}
+> Source: debug
 
 ## Description
 
@@ -228,7 +238,7 @@ Create `.agents/code/tasks/{taskname}/issues/{taskname}-{bug-title}.md`:
 - `{file}:{line}` - {issue description}
 - `{file}:{line}` - {issue description}
 
-## Related Spec
+## Related Spec (if known)
 
 - `spec/{file}.md` - {relevant section}
 
@@ -253,37 +263,32 @@ Create `.agents/code/tasks/{taskname}/issues/{taskname}-{bug-title}.md`:
 
 ```
 
-### 4.2 Update Issues Log
+### 4.2 Update Inbox Index
 
-Create or update `.agents/code/issues.md`:
+Create or update `.agents/code/inbox.md`:
 
 ```markdown
-# Outstanding Issues
+# Inbox
 
 > Last updated: {date}
 
-## Open Issues
+## Open
 
-| Task | Bug | Priority | Status | Created |
-|------|-----|----------|--------|---------|
-| {taskname} | [{bug-title}](tasks/{taskname}/issues/{taskname}-{bug-title}.md) | {priority} | OPEN | {date} |
+| Issue | Priority | Task | Created |
+|------|----------|------|---------|
+| [{bug-title}](inbox/{bug-title}.md) | {priority} | unassigned | {date} |
+| [{bug-title}](tasks/{taskname}/issues/{taskname}-{bug-title}.md) | {priority} | {taskname} | {date} |
 
-## Recently Resolved
+## Resolved
 
-| Task | Bug | Resolution | Resolved |
-|------|-----|------------|----------|
-| {taskname} | [{bug-title}](tasks/{taskname}/issues/{taskname}-{bug-title}.md) | Fixed | {date} |
-
-## Statistics
-
-- Open: {count}
-- Resolved (this week): {count}
-- Total tracked: {count}
+| Issue | Resolution | Resolved |
+|------|------------|----------|
+| [{bug-title}](inbox/{bug-title}.md) | Fixed | {date} |
 ```
 
-### 4.3 Update Task Plan
+### 4.3 Update Task Plan (if assigned)
 
-Add bug to `.agents/code/tasks/{taskname}/plan.md`:
+If the issue is assigned to a task, add it to `.agents/code/tasks/{taskname}/plan.md`:
 
 ```markdown
 ## Bugs
@@ -300,6 +305,8 @@ Add bug to `.agents/code/tasks/{taskname}/plan.md`:
 ---
 
 ## PART 5: WRITE FAILING TEST
+
+If the issue is unassigned (inbox), pause here and ask whether to create a task or hotfix before writing tests or making code changes.
 
 ### 5.1 Identify Test Location
 
@@ -412,9 +419,8 @@ When fixed, update issue file:
 - Commits: {hashes}
 ```
 
-Update `.agents/code/issues.md`:
-- Move from "Open Issues" to "Recently Resolved"
-- Update statistics
+Update `.agents/code/inbox.md`:
+- Move from "Open" to "Resolved"
 
 Update `plan.md`:
 - Mark bug task as complete
@@ -433,15 +439,15 @@ Bug Reported
 ├── Identify related task
 │   ├── Found matching task?
 │   │   ├── Yes → Load task context
-│   │   └── No → Create new task or flag as infra bug
+│   │   └── No → Create inbox issue, ask for triage
 │   │
 │   └── Analyze root cause
 │       └── Compare to spec
 │
 ├── Document the bug
 │   ├── Create issue file
-│   ├── Update issues.md log
-│   └── Update task plan.md
+│   ├── Update inbox.md index
+│   └── Update task plan.md (if assigned)
 │
 ├── Write failing test
 │   ├── Confirm test fails
@@ -460,12 +466,13 @@ Bug Reported
 ```bash
 # List all issues
 find .agents/code/tasks -name "*.md" -path "*/issues/*" | head -20
+find .agents/code/inbox -name "*.md" | head -20
 
 # Search for specific bug
 rg "BUG:" .agents/code/tasks/*/plan.md
 
-# Count open issues
-rg -c "OPEN" .agents/code/issues.md
+# Count open inbox issues
+rg -c "OPEN" .agents/code/inbox.md
 
 # Run specific failing test
 {TEST_COMMAND} --filter {test_name}
@@ -492,7 +499,7 @@ git log --oneline -10 -- {affected_files}
 1. **Document first** - Create issue file before fixing
 2. **Test first** - Write failing test before implementing fix
 3. **Track progress** - Log every attempt in issue file
-4. **Update all locations** - Issue file, issues.md, plan.md
+4. **Update all locations** - Issue file, inbox.md, plan.md
 5. **Verify thoroughly** - Full test suite after fix
 
 ## PRIORITY

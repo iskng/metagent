@@ -79,9 +79,9 @@ metagent start
 # Or manually:
 metagent task my-feature       # Create task
 # Use /spec slash command      # Write specs
-metagent finish spec           # Advance to planning
+metagent finish spec --session "<session>"           # Advance to planning
 # Use /planner slash command   # Create plan
-metagent finish planning       # Advance to ready
+metagent finish planning --session "<session>"       # Advance to ready
 
 # Build Loop
 metagent run my-feature
