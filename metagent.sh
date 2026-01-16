@@ -12,6 +12,7 @@
 #   metagent queue [taskname]            Add task to queue / show queue
 #   metagent dequeue <taskname>          Remove task from queue
 #   metagent run-queue                   Process all queued tasks
+#   metagent review <taskname> [focus]   Review task commits for issues
 #
 # Common options:
 #   -h, --help          Show help
@@ -75,6 +76,7 @@ show_help() {
     echo "  queue [taskname]            Show queue / add task to queue"
     echo "  dequeue <taskname>          Remove task from queue"
     echo "  run-queue                   Process all queued tasks"
+    echo "  review <taskname> [focus]   Review task commits for issues"
     echo ""
     echo "Options:"
     echo "  --agent TYPE        Select agent type (code, writer)"
@@ -177,6 +179,27 @@ render_prompt() {
     repo_root=$(get_repo_root)
     local repo_escaped
     repo_escaped=$(escape_sed_replacement "$repo_root")
+
+    # Check if task has issues status
+    local issues_mode=""
+    if [ -n "$taskname" ]; then
+        local queue_file
+        queue_file=$(get_queue_file)
+        if [ -f "$queue_file" ]; then
+            local task_entry
+            task_entry=$(grep "\"task\":\"$taskname\"" "$queue_file" 2>/dev/null || true)
+            if [ -n "$task_entry" ]; then
+                local status
+                status=$(json_field "$task_entry" "status")
+                if [ "$status" = "issues" ]; then
+                    issues_mode="99999999999999. **REVIEW ISSUES:** This task returned from review with issues. Read @.agents/code/tasks/${taskname}/issues.md and address all open issues for this phase. Discuss decisions with the user as needed. Update issue status to \"resolved\" when addressed. All issues must be resolved before finishing this phase."
+                fi
+            fi
+        fi
+    fi
+    local issues_escaped
+    issues_escaped=$(escape_sed_replacement "$issues_mode")
+
     if [ -n "$taskname" ]; then
         local task_escaped
         task_escaped=$(escape_sed_replacement "$taskname")
@@ -184,9 +207,13 @@ render_prompt() {
             -e "s|{repo}|$repo_escaped|g" \
             -e "s|{taskname}|$task_escaped|g" \
             -e "s|{task}|$task_escaped|g" \
+            -e "s|{issues_mode}|$issues_escaped|g" \
             "$prompt_file"
     else
-        sed -E "s|{repo}|$repo_escaped|g" "$prompt_file"
+        sed -E \
+            -e "s|{repo}|$repo_escaped|g" \
+            -e "s|{issues_mode}||g" \
+            "$prompt_file"
     fi
 }
 
@@ -348,9 +375,9 @@ do_install() {
     mkdir -p "$claude_commands"
     mkdir -p "$codex_commands"
 
-    # Link metagent to PATH
-    ln -sf "$SCRIPT_DIR/metagent.sh" "$bin_dir/metagent"
-    echo -e "${GREEN}✓${NC} Linked metagent to $bin_dir/metagent"
+    # Copy metagent to PATH
+    cp "$SCRIPT_DIR/metagent.sh" "$bin_dir/metagent"
+    echo -e "${GREEN}✓${NC} Copied metagent to $bin_dir/metagent"
 
     # Install each agent's prompts
     for agent_dir in "$SCRIPT_DIR"/*/; do
@@ -462,6 +489,7 @@ do_queue() {
 
                     case "$status" in
                         pending)    echo -e "  ○ ${task}" ;;
+                        issues)     echo -e "  ${CYAN}◆${NC} ${task} (issues)" ;;
                         incomplete) echo -e "  ${YELLOW}◐${NC} ${task} (incomplete)" ;;
                         running)    echo -e "  ${BLUE}●${NC} ${task} (running)" ;;
                         failed)     echo -e "  ${RED}✗${NC} ${task} (failed)" ;;
@@ -703,10 +731,27 @@ do_finish() {
     # Update queue file if we have a task name and next stage
     if [ -n "$task" ] && [ -n "$next_stage" ] && [ -f "$queue_file" ]; then
         local temp_file="${queue_file}.tmp"
+
+        # Get current status to determine if we should propagate "issues"
+        local current_status=""
+        local task_entry
+        task_entry=$(grep "\"task\":\"$task\"" "$queue_file" 2>/dev/null || true)
+        if [ -n "$task_entry" ]; then
+            current_status=$(json_field "$task_entry" "status")
+        fi
+
+        # Determine new status
         local new_status="pending"
         if [ "$next_stage" = "completed" ]; then
             new_status="completed"
+        elif [ "$current_status" = "issues" ]; then
+            # Propagate issues status through stages
+            new_status="issues"
+        elif [ "$stage" = "review" ] && [ -n "$override_next" ]; then
+            # Coming from review with issues - mark status as issues
+            new_status="issues"
         fi
+
         while IFS= read -r line; do
             if echo "$line" | grep -q "\"task\":\"$task\""; then
                 # Update stage and status
@@ -973,22 +1018,30 @@ $(render_prompt "$prompt_file" "$taskname")"
     # Check if metagent finish was called
     if [ -f "$marker_file" ]; then
         read_marker "$marker_file"
+        echo "[DEBUG] Marker found: stage=$MARKER_STAGE next=$MARKER_NEXT task=$MARKER_TASK" >&2
         rm -f "$marker_file"
         if [ "$MARKER_NEXT" = "completed" ]; then
+            echo "[DEBUG] Returning 2 (task complete)" >&2
             return 2  # Task complete
         fi
         if [ -n "$MARKER_NEXT" ]; then
+            echo "[DEBUG] Returning 0 (stage complete)" >&2
             return 0  # Stage complete
         fi
+        echo "[DEBUG] Marker found but MARKER_NEXT empty, falling through" >&2
+    else
+        echo "[DEBUG] No marker file found at $marker_file" >&2
     fi
 
     # Claude exited without marker - was it interrupted or natural exit?
     if [ "$marker_triggered" = true ]; then
         # We triggered the kill, marker should have been there
+        echo "[DEBUG] Returning 1 (marker_triggered but no marker)" >&2
         return 1
     fi
 
     # User interrupted (Ctrl+C) or Claude exited on its own
+    echo "[DEBUG] Returning 130 (interrupted)" >&2
     return 130  # Signal interrupted
 }
 
@@ -1241,6 +1294,61 @@ $(render_prompt "$prompt_file" "$taskname")"
     done
 }
 
+do_review() {
+    local taskname
+    taskname=$(sanitize_taskname "$1") || exit 1
+    local focus_prompt="$2"
+
+    if [ -z "$taskname" ]; then
+        echo -e "${RED}Error: Task name required${NC}"
+        echo "Usage: metagent review <taskname> [focus]"
+        exit 1
+    fi
+
+    local agent_root
+    agent_root=$(get_agent_root)
+    local task_dir="$agent_root/tasks/${taskname}"
+    local prompt_file
+    prompt_file=$(agent_review_prompt)
+
+    if [ ! -d "$task_dir" ]; then
+        echo -e "${RED}Error: Task '$taskname' not found${NC}"
+        exit 1
+    fi
+
+    if [ ! -f "$prompt_file" ]; then
+        echo -e "${RED}Error: Review prompt not found. Run 'metagent install' first.${NC}"
+        exit 1
+    fi
+
+    echo -e "${BLUE}Reviewing task: ${taskname}${NC}"
+    if [ -n "$focus_prompt" ]; then
+        echo -e "${CYAN}Focus: ${focus_prompt}${NC}"
+    fi
+    echo ""
+
+    export METAGENT_AGENT="$AGENT"
+    export METAGENT_TASK="$taskname"
+
+    # Build focus section if provided
+    local focus_section=""
+    if [ -n "$focus_prompt" ]; then
+        focus_section="## FOCUS AREA
+
+The user has requested special attention to:
+> $focus_prompt
+
+Prioritize investigating this area first, then continue with full review."
+    fi
+
+    local prompt_text
+    prompt_text="Task: $taskname
+
+$(render_prompt "$prompt_file" "$taskname" | sed "s|{focus_section}|$focus_section|g")"
+
+    $(get_cli_cmd) "$prompt_text"
+}
+
 do_uninstall() {
     local bin_dir="$HOME/.local/bin"
     local metagent_dir="$HOME/.metagent"
@@ -1376,6 +1484,9 @@ case "$COMMAND" in
         ;;
     run-queue|rq)
         do_run_queue
+        ;;
+    review)
+        do_review "$@"
         ;;
     *)
         echo -e "${RED}Error: Unknown command '$COMMAND'${NC}"

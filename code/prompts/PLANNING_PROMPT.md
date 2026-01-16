@@ -29,3 +29,4 @@
 99999999999. EVERY SPEC REQUIREMENT MUST MAP TO A TASK
 999999999999. PLAN ONLY - NO IMPLEMENTATION
 9999999999999. WHEN PLAN IS COMPLETE: run cd "{repo}" && METAGENT_TASK="{task}" metagent --agent code finish planning to advance to build phase.
+{issues_mode}
