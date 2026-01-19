@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use crate::agent::AgentKind;
 use crate::model::Model;
@@ -59,6 +59,88 @@ impl CommandContext {
     }
 }
 
+#[cfg(target_os = "macos")]
+fn macos_detect_codesign_identity() -> Option<String> {
+    let output = Command::new("security")
+        .args(["find-identity", "-p", "codesigning", "-v"])
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let mut identities = Vec::new();
+    for line in stdout.lines() {
+        let start = line.find('"');
+        let end = line.rfind('"');
+        if let (Some(start), Some(end)) = (start, end) {
+            if end > start {
+                identities.push(line[start + 1..end].to_string());
+            }
+        }
+    }
+    if identities.is_empty() {
+        return None;
+    }
+    for prefix in ["Developer ID Application:", "Developer ID:"] {
+        if let Some(identity) = identities.iter().find(|id| id.starts_with(prefix)) {
+            return Some(identity.clone());
+        }
+    }
+    identities.into_iter().next()
+}
+
+#[cfg(target_os = "macos")]
+fn macos_run_codesign(dest: &Path, identity: Option<&str>) -> bool {
+    let mut cmd = Command::new("codesign");
+    cmd.arg("--force").stdout(Stdio::null()).stderr(Stdio::null());
+    match identity {
+        Some(identity) => {
+            cmd.args(["--options", "runtime", "--timestamp", "-s", identity]);
+        }
+        None => {
+            cmd.args(["-s", "-"]);
+        }
+    }
+    cmd.arg(dest)
+        .status()
+        .map(|status| status.success())
+        .unwrap_or(false)
+}
+
+#[cfg(target_os = "macos")]
+fn macos_post_install(dest: &Path) {
+    if env::var_os("METAGENT_SKIP_CODESIGN").is_some() {
+        return;
+    }
+
+    let _ = Command::new("xattr")
+        .args(["-d", "com.apple.quarantine"])
+        .arg(dest)
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status();
+    let _ = Command::new("xattr")
+        .args(["-d", "com.apple.provenance"])
+        .arg(dest)
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status();
+
+    let explicit_identity = env::var("METAGENT_CODESIGN_ID").ok();
+    let detected_identity = explicit_identity.clone().or_else(macos_detect_codesign_identity);
+    let mut signed = macos_run_codesign(dest, detected_identity.as_deref());
+    if !signed && explicit_identity.is_none() && detected_identity.is_some() {
+        signed = macos_run_codesign(dest, None);
+    }
+    if matches!(explicit_identity, Some(_)) && !signed {
+        eprintln!("Warning: codesign failed for {}.", dest.display());
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn macos_post_install(_: &Path) {}
+
 pub fn cmd_install() -> Result<()> {
     let home = home_dir()?;
     let bin_dir = home.join(".local/bin");
@@ -73,6 +155,8 @@ pub fn cmd_install() -> Result<()> {
         perms.set_mode(0o755);
         fs::set_permissions(&dest, perms)?;
     }
+
+    macos_post_install(&dest);
 
     // Verify the installed binary works (catches macOS code signing issues)
     let verify = Command::new(&dest)
@@ -742,14 +826,13 @@ fn run_stage(
     let session_path = crate::util::session_state_path(&ctx.agent_root, &session_id);
     loop {
         if INTERRUPTED.load(Ordering::SeqCst) {
-            send_sigint(&mut child);
+            send_signal(&mut child, libc::SIGINT);
             return Ok(StageResult::Interrupted);
         }
 
         if let Ok(session_state) = load_session(&session_path) {
             if session_state.status == SessionStatus::Finished {
-                send_sigint(&mut child);
-                let _ = child.wait();
+                terminate_child(&mut child);
                 return Ok(StageResult::Finished(session_state));
             }
         }
@@ -955,11 +1038,44 @@ fn ensure_symlink(target: &Path, link_path: &Path) -> Result<()> {
     Ok(())
 }
 
-fn send_sigint(child: &mut std::process::Child) {
-    let pid = child.id();
+fn send_signal(child: &mut std::process::Child, signal: i32) {
+    let pid = child.id() as i32;
     unsafe {
-        libc::kill(pid as i32, libc::SIGINT);
+        let _ = libc::kill(pid, signal);
     }
+}
+
+fn wait_for_child_exit(child: &mut std::process::Child, timeout: Duration) -> bool {
+    let start = Instant::now();
+    while start.elapsed() < timeout {
+        match child.try_wait() {
+            Ok(Some(_)) => return true,
+            Ok(None) => {}
+            Err(_) => return false,
+        }
+        thread::sleep(Duration::from_millis(100));
+    }
+    false
+}
+
+fn terminate_child(child: &mut std::process::Child) {
+    const SIGINT_ATTEMPTS: usize = 3;
+    for _ in 0..SIGINT_ATTEMPTS {
+        send_signal(child, libc::SIGINT);
+        if wait_for_child_exit(child, Duration::from_millis(500)) {
+            return;
+        }
+    }
+
+    send_signal(child, libc::SIGTERM);
+    if wait_for_child_exit(child, Duration::from_secs(1)) {
+        return;
+    }
+
+    send_signal(child, libc::SIGKILL);
+    let _ = wait_for_child_exit(child, Duration::from_secs(1));
+    let _ = child.kill();
+    let _ = wait_for_child_exit(child, Duration::from_secs(1));
 }
 
 #[derive(Debug)]

@@ -1,0 +1,24 @@
+# Build output
+/target
+
+# Cargo lock for binaries (keep for libraries, ignore for binaries)
+# Cargo.lock
+
+# IDE/Editor
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# macOS
+.DS_Store
+
+# Environment
+.env
+.env.local
+
+# Agent runtime data
+.agents/code/sessions/
+.agents/code/tasks/
+.agents/code/claims/

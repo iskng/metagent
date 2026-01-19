@@ -19,6 +19,21 @@ metagent --agent writer init
 /writer-init
 ```
 
+## Building from Source
+
+```bash
+# Standard release build
+cargo build --release
+
+# macOS: build + sign (Developer ID if available, ad-hoc fallback)
+tools/build.sh
+
+# macOS: sign with a specific Developer ID identity
+METAGENT_CODESIGN_ID="Developer ID Application: Your Name (TEAMID)" tools/build.sh
+```
+
+Set `METAGENT_SKIP_CODESIGN=1` to skip signing.
+
 ## Agent Types
 
 | Agent | Purpose | Workflow |
