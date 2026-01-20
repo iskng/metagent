@@ -114,34 +114,9 @@ Before writing ANY page:
 
 ---
 
-## Back Pressure - Editorial Checks
 
-After writing the page, run checks via single subagent:
-
-1. **Accuracy check:**
-   - Are facts accurate and sourced?
-   - Any claims that need verification?
-
-2. **Style compliance check:**
-   - Voice and tone match style/voice.md?
-   - Terminology matches style/terminology.md?
-   - Formatting follows conventions?
-
-3. **Consistency check:**
-   - No contradictions with existing content?
-   - Terminology used consistently?
-   - Cross-references accurate?
-
-4. **Quality check:**
-   - Grammar and spelling correct?
-   - Sentences clear and readable?
-   - Examples complete?
-
----
 
 ## On Success - Save Progress
-
-When editorial checks pass:
 
 1. **Update editorial_plan.md** using subagent:
    - Mark page complete

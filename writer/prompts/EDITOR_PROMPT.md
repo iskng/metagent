@@ -35,12 +35,38 @@ Load and study these files before starting:
 Your task each loop:
 1. Study editorial_plan.md to identify which page was just completed
 2. Read that page file from content/section-NN/
+3. Apply editorial checks
 3. Apply the humanization patterns below to remove AI writing tells
 4. Inject personality and voice per the style guide
 5. Save the edited page (overwrite in place)
 6. Update editorial_plan.md to note the page has been edited
 7. Signal completion with the appropriate command
 8. **STOP**
+
+---
+
+## Back Pressure - Editorial Checks
+
+Run checks via single subagent:
+
+1. **Accuracy check:**
+   - Are facts accurate and sourced?
+   - Any claims that need verification?
+
+2. **Style compliance check:**
+   - Voice and tone match style/voice.md?
+   - Terminology matches style/terminology.md?
+   - Formatting follows conventions?
+
+3. **Consistency check:**
+   - No contradictions with existing content?
+   - Terminology used consistently?
+   - Cross-references accurate?
+
+4. **Quality check:**
+   - Grammar and spelling correct?
+   - Sentences clear and readable?
+   - Examples complete?
 
 ---
 
