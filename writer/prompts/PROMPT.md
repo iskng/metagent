@@ -36,9 +36,7 @@ Your task each loop:
 2. Research the topic online using subagents BEFORE writing
 3. Research existing content using subagents (don't duplicate, stay consistent)
 4. Write ONE page (~1000 words) according to outline and style guide
-5. Run editorial checks via single subagent
-6. If checks pass: update editorial_plan.md, save progress, **STOP**
-7. If checks fail: fix issues, then **STOP**
+5. Update editorial_plan.md, save progress, **STOP**
 
 **STOP AFTER COMPLETING ONE PAGE. Do not continue to the next page.**
 
@@ -50,7 +48,6 @@ Your task each loop:
 - Online research: up to 3 parallel subagents
 - Content search/reading: up to 3 parallel subagents
 - Writing: 1 subagent only (one page at a time)
-- Editorial checks: 1 subagent only
 - editorial_plan.md updates: 1 subagent
 - AGENTS.md updates: 1 subagent
 
