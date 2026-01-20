@@ -30,7 +30,7 @@ impl AgentKind {
     pub fn stages(&self) -> &'static [&'static str] {
         match self {
             Self::Code => &["spec", "spec-review", "planning", "build", "review", "completed"],
-            Self::Writer => &["init", "plan", "write", "completed"],
+            Self::Writer => &["init", "plan", "write", "edit", "completed"],
         }
     }
 
@@ -38,7 +38,7 @@ impl AgentKind {
     pub fn orchestrated_stages(&self) -> &'static [&'static str] {
         match self {
             Self::Code => &["spec", "planning"],
-            Self::Writer => &["init", "plan", "write"],
+            Self::Writer => &["init", "plan", "write", "edit"],
         }
     }
 
@@ -70,7 +70,8 @@ impl AgentKind {
             Self::Writer => match stage {
                 "init" => Some("plan"),
                 "plan" => Some("write"),
-                "write" => Some("completed"),
+                "write" => Some("edit"),
+                "edit" => Some("completed"),
                 _ => None,
             },
         }
@@ -79,7 +80,7 @@ impl AgentKind {
     pub fn valid_finish_stages(&self) -> &'static [&'static str] {
         match self {
             Self::Code => &["spec", "spec-review", "planning", "build", "review", "task"],
-            Self::Writer => &["init", "plan", "write"],
+            Self::Writer => &["init", "plan", "write", "edit"],
         }
     }
 
@@ -98,6 +99,7 @@ impl AgentKind {
                 "init" => "Init",
                 "plan" => "Plan",
                 "write" => "Write",
+                "edit" => "Edit",
                 "completed" => "Completed",
                 _ => stage,
             },
@@ -119,6 +121,7 @@ impl AgentKind {
                 "init" => Some(PathBuf::from("INIT_PROMPT.md")),
                 "plan" => Some(PathBuf::from("PLANNING_PROMPT.md")),
                 "write" => Some(PathBuf::from("PROMPT.md")),
+                "edit" => Some(PathBuf::from("EDITOR_PROMPT.md")),
                 _ => None,
             },
         }
@@ -168,6 +171,7 @@ impl AgentKind {
                 "INIT_PROMPT.md" => Some(assets::WRITER_INIT_PROMPT),
                 "PLANNING_PROMPT.md" => Some(assets::WRITER_PLANNING_PROMPT),
                 "PROMPT.md" => Some(assets::WRITER_PROMPT),
+                "EDITOR_PROMPT.md" => Some(assets::WRITER_EDITOR_PROMPT),
                 _ => None,
             },
         }
@@ -191,6 +195,7 @@ impl AgentKind {
                 ("INIT_PROMPT.md", assets::WRITER_INIT_PROMPT),
                 ("PLANNING_PROMPT.md", assets::WRITER_PLANNING_PROMPT),
                 ("PROMPT.md", assets::WRITER_PROMPT),
+                ("EDITOR_PROMPT.md", assets::WRITER_EDITOR_PROMPT),
                 ("agent.sh", assets::WRITER_AGENT_SH),
             ],
         }

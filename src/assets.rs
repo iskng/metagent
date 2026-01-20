@@ -14,6 +14,7 @@ pub const CODE_SPEC_REVIEW_PROMPT: &str = include_str!("../code/prompts/SPEC_REV
 pub const WRITER_INIT_PROMPT: &str = include_str!("../writer/prompts/INIT_PROMPT.md");
 pub const WRITER_PLANNING_PROMPT: &str = include_str!("../writer/prompts/PLANNING_PROMPT.md");
 pub const WRITER_PROMPT: &str = include_str!("../writer/prompts/PROMPT.md");
+pub const WRITER_EDITOR_PROMPT: &str = include_str!("../writer/prompts/EDITOR_PROMPT.md");
 
 pub const CODE_TEMPLATE_AGENTS: &str = include_str!("../code/templates/AGENTS.md");
 pub const CODE_TEMPLATE_SPEC: &str = include_str!("../code/templates/SPEC.md");

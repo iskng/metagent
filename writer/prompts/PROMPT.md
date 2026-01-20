@@ -2,16 +2,14 @@
 
 ## Workflow Context
 
-The writing workflow cycles between planning and writing:
+The writing workflow cycles between planning, writing, and editing:
 
 ```
-plan → write → write → write → plan → write → write → plan → ... → done
+plan → write → edit → write → edit → write → edit → plan → ...
 ```
 
-This prompt runs at the **write** stage. You write one page per loop. After each page:
-- More pages in section? → `--next write` (stay in write stage)
-- Section complete, more sections? → `--next plan` (cycle back to planning)
-- All done? → no flag (advance to completed)
+This prompt runs at the **write** stage. You write one page per loop. After writing:
+- Always advance to **edit** stage (the editor will humanize the page and decide what's next)
 
 ---
 
@@ -187,26 +185,17 @@ When problems are found:
 
 ## Signal Completion
 
-**YOU MUST RUN ONE OF THESE COMMANDS before stopping.** The orchestrator depends on this signal.
+**YOU MUST RUN THIS COMMAND before stopping.** The orchestrator depends on this signal.
 
-Check editorial_plan.md to determine which command to run:
+After writing and saving the page, always advance to the edit stage:
 
-1. **More pages in current section?** (unchecked `- [ ]` pages exist)
-   ```bash
-   cd "{repo}" && METAGENT_TASK="{task}" metagent --agent writer finish write --session "{session}" --next write
-   ```
+```bash
+cd "{repo}" && METAGENT_TASK="{task}" metagent --agent writer finish write --session "{session}"
+```
 
-2. **Section complete, more sections to plan?**
-   ```bash
-   cd "{repo}" && METAGENT_TASK="{task}" metagent --agent writer finish write --session "{session}" --next plan
-   ```
+The edit stage will humanize the page and determine what comes next (more writing, planning, or completion).
 
-3. **All sections complete?**
-   ```bash
-   cd "{repo}" && METAGENT_TASK="{task}" metagent --agent writer finish write --session "{session}"
-   ```
-
-**RUN THE APPROPRIATE COMMAND NOW using Bash tool, then STOP.**
+**RUN THE COMMAND NOW using Bash tool, then STOP.**
 
 ---
 
