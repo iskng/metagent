@@ -181,9 +181,8 @@ The edit stage will humanize the page and determine what comes next (more writin
 2. Identify current page number
 3. Research existing content before writing
 4. Write ONE page according to outline and style
-5. Run editorial checks
-6. Save only if checks pass
-7. **STOP**
+5. Save
+6. **STOP**
 
 9. Keep editorial_plan.md updated with findings
 99. Keep AGENTS.md updated with learnings
