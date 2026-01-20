@@ -451,9 +451,13 @@ Avoiding AI patterns is only half the job. Sterile, voiceless writing is just as
    - Uses specific details over vague claims
    - Matches the voice in style/voice.md
    - Uses simple constructions (is/are/has) where appropriate
-5. Save the edited page (overwrite the original file)
+5. **Update editorial_plan.md** using subagent:
+   - Mark page complete
+   - Note current progress
+   - Add any new items discovered
 
 ---
+
 
 ## Signal Completion
 

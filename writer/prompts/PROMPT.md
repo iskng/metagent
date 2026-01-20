@@ -159,7 +159,7 @@ When problems are found:
 
 **YOU MUST RUN THIS COMMAND before stopping.** The orchestrator depends on this signal.
 
-After writing and saving the page, always advance to the edit stage:
+After writing, always advance to the edit stage:
 
 ```bash
 cd "{repo}" && METAGENT_TASK="{task}" metagent --agent writer finish write --session "{session}"
@@ -178,7 +178,6 @@ The edit stage will humanize the page and determine what comes next (more writin
 2. Identify current page number
 3. Research existing content before writing
 4. Write ONE page according to outline and style
-5. Save
 6. **STOP**
 
 9. Keep editorial_plan.md updated with findings
