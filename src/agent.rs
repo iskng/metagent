@@ -146,7 +146,7 @@ impl AgentKind {
     pub fn model_for_stage(&self, stage: &str) -> Option<Model> {
         match self {
             Self::Code => match stage {
-                "spec-review" | "planning" | "build" | "review" => Some(Model::Codex),
+                "spec" | "spec-review" | "planning" | "build" | "review" => Some(Model::Codex),
                 _ => None,
             },
             Self::Writer => None,
@@ -240,22 +240,6 @@ impl AgentKind {
         Ok(())
     }
 
-    pub fn slash_commands(&self) -> Vec<(&'static str, &'static str)> {
-        match self {
-            Self::Code => vec![
-                ("bootstrap.md", "BOOTSTRAP_PROMPT.md"),
-                ("spec.md", "SPEC_PROMPT.md"),
-                ("planner.md", "PLANNING_PROMPT.md"),
-                ("debug.md", "DEBUG_PROMPT.md"),
-                ("submit-issue.md", "SUBMIT_ISSUE_PROMPT.md"),
-            ],
-            Self::Writer => vec![
-                ("writer-init.md", "INIT_PROMPT.md"),
-                ("writer-plan.md", "PLANNING_PROMPT.md"),
-                ("writer.md", "PROMPT.md"),
-            ],
-        }
-    }
 }
 
 fn code_build_prompt(task: &str) -> String {

@@ -3,7 +3,6 @@ use owo_colors::OwoColorize;
 use std::env;
 use std::fs;
 use std::io::Read;
-use std::os::unix::fs as unix_fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -182,24 +181,11 @@ pub fn cmd_install() -> Result<()> {
     }
 
     let metagent_dir = home.join(".metagent");
-    let claude_commands = home.join(".claude/commands");
-    let codex_commands = home.join(".codex/prompts");
-    fs::create_dir_all(&claude_commands)?;
-    fs::create_dir_all(&codex_commands)?;
-
     for agent in [AgentKind::Code, AgentKind::Writer] {
         let agent_dir = metagent_dir.join(agent.name());
         fs::create_dir_all(&agent_dir)?;
         for (file, content) in agent.install_prompts() {
             write_text(&agent_dir.join(file), content)?;
-        }
-
-        for (link_name, prompt_file) in agent.slash_commands() {
-            let target = agent_dir.join(prompt_file);
-            let claude_link = claude_commands.join(link_name);
-            let codex_link = codex_commands.join(link_name);
-            ensure_symlink(&target, &claude_link)?;
-            ensure_symlink(&target, &codex_link)?;
         }
     }
 
@@ -543,7 +529,7 @@ pub fn cmd_run_queue(ctx: &CommandContext) -> Result<()> {
             }
             let mut stage_tasks: Vec<TaskState> = tasks
                 .iter()
-                .filter(|t| t.stage == *stage && matches!(t.status, TaskStatus::Pending | TaskStatus::Incomplete))
+                .filter(|t| t.stage == *stage && matches!(t.status, TaskStatus::Pending | TaskStatus::Incomplete | TaskStatus::Issues))
                 .cloned()
                 .collect();
             if stage_tasks.is_empty() {
@@ -1024,18 +1010,6 @@ fn determine_next_status(
         return TaskStatus::Issues;
     }
     TaskStatus::Pending
-}
-
-fn ensure_symlink(target: &Path, link_path: &Path) -> Result<()> {
-    if link_path.exists() || link_path.is_symlink() {
-        fs::remove_file(link_path).ok();
-    }
-    if let Some(parent) = link_path.parent() {
-        fs::create_dir_all(parent)?;
-    }
-    unix_fs::symlink(target, link_path)
-        .with_context(|| format!("Failed to create symlink {}", link_path.display()))?;
-    Ok(())
 }
 
 fn send_signal(child: &mut std::process::Child, signal: i32) {

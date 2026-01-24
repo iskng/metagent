@@ -17,9 +17,6 @@ pub fn render_prompt(template: &str, context: &PromptContext<'_>) -> String {
     if let Some(task) = context.task {
         output = output.replace("{task}", task);
         output = output.replace("{taskname}", task);
-    } else {
-        output = output.replace("{task}", "");
-        output = output.replace("{taskname}", "");
     }
     if let Some(session) = context.session {
         output = output.replace("{session}", session);
