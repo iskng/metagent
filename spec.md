@@ -178,9 +178,10 @@ All commands mirror current behavior and flags.
 - Repeat until no eligible tasks remain.
 - Skip held tasks.
 
-### run-next
+### run-next [task]
 - Run the next eligible task for a single stage, then exit.
-- Skip held tasks.
+- When a task name is supplied, run that task's current stage once.
+- Skip held tasks unless a specific task is provided (then it is auto-activated).
 
 ### hold/activate
 - `hold`: mark a task as held/backlog (excluded from run-queue).

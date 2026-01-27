@@ -856,20 +856,69 @@ pub fn cmd_run_queue(ctx: &CommandContext) -> Result<()> {
     }
 }
 
-pub fn cmd_run_next(ctx: &CommandContext) -> Result<()> {
+pub fn cmd_run_next(ctx: &CommandContext, task: Option<&str>) -> Result<()> {
     let tasks = list_tasks(&ctx.agent_root);
     if tasks.is_empty() {
         println!("No tasks");
         return Ok(());
     }
 
-    for task in tasks.iter().filter(|t| t.status == TaskStatus::Running && t.stage != "completed") {
-        let task_path = task_state_path(&ctx.agent_root, &task.task);
+    for task_state in tasks.iter().filter(|t| t.status == TaskStatus::Running && t.stage != "completed") {
+        let task_path = task_state_path(&ctx.agent_root, &task_state.task);
         update_task(&task_path, |task_state| {
             task_state.status = TaskStatus::Incomplete;
             task_state.updated_at = now_iso();
             Ok(())
         })?;
+    }
+
+    if let Some(task) = task {
+        validate_task_name(task)?;
+        let task_path = task_state_path(&ctx.agent_root, task);
+        if !task_path.exists() {
+            bail!("Task '{}' not found", task);
+        }
+        let task_state = load_task(&task_path)?;
+        if task_state.stage == "completed" {
+            println!("Task '{}' completed.", task);
+            return Ok(());
+        }
+        if task_state.status == TaskStatus::Running {
+            bail!("Task '{}' is currently running", task);
+        }
+        if task_state.held {
+            update_task(&task_path, |task_state| {
+                task_state.held = false;
+                task_state.updated_at = now_iso();
+                Ok(())
+            })?;
+            println!("Activating held task '{}'", task);
+        }
+        update_task(&task_path, |task_state| {
+            task_state.status = TaskStatus::Running;
+            task_state.updated_at = now_iso();
+            Ok(())
+        })?;
+
+        let result = run_stage(ctx, Some(task), &task_state.stage, None)?;
+        match result {
+            StageResult::Finished(_) => {}
+            StageResult::Interrupted => {
+                update_task(&task_path, |task_state| {
+                    task_state.status = TaskStatus::Incomplete;
+                    task_state.updated_at = now_iso();
+                    Ok(())
+                })?;
+            }
+            StageResult::NoFinish => {
+                update_task(&task_path, |task_state| {
+                    task_state.status = TaskStatus::Failed;
+                    task_state.updated_at = now_iso();
+                    Ok(())
+                })?;
+            }
+        }
+        return Ok(());
     }
 
     let tasks = list_tasks(&ctx.agent_root);

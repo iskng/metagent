@@ -58,7 +58,7 @@ metagent activate <name>   # Activate held task
 metagent finish [stage] --session "<session>"    # Signal stage/task completion
 metagent finish --next <stage> --session "<session>"  # Signal iteration complete, stay in stage
 metagent run <name>        # Run loop for a task
-metagent run-next          # Run next eligible task for one stage
+metagent run-next [name]   # Run next eligible task for one stage (or a specific task)
 metagent issues            # List issues
 metagent issue <command>   # Manage issues (add/resolve/assign/show)
 metagent debug [bug...]    # Launch debug prompt with bug context (Codex)

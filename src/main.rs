@@ -61,7 +61,7 @@ enum Commands {
     },
     Run { name: String },
     #[command(name = "run-next", alias = "rn")]
-    RunNext,
+    RunNext { name: Option<String> },
     #[command(alias = "q")]
     Queue { task: Option<String> },
     Dequeue { name: String },
@@ -159,10 +159,10 @@ fn main() -> Result<()> {
             let ctx = CommandContext::new(agent, model_choice, repo_root)?;
             cmd_run(&ctx, &name)
         }
-        Commands::RunNext => {
+        Commands::RunNext { name } => {
             let repo_root = get_repo_root(None)?;
             let ctx = CommandContext::new(agent, model_choice, repo_root)?;
-            commands::cmd_run_next(&ctx)
+            commands::cmd_run_next(&ctx, name.as_deref())
         }
         Commands::Queue { task } => {
             let repo_root = get_repo_root(None)?;
