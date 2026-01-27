@@ -139,6 +139,7 @@ project/
 | Prompt | Phase | Purpose |
 |--------|-------|---------|
 | `SPEC_PROMPT.md` | 1 - Spec | Interview user, explore codebase, create specifications |
+| `SPEC_EXISTING_TASK_PROMPT.md` | 1 - Spec | Spec for existing tasks (no task creation) |
 | `PLANNING_PROMPT.md` | 2 - Plan | Read specs, research codebase, generate plan.md |
 | `{task}/PROMPT.md` | 3 - Build | Execute plan incrementally, test, commit |
 
@@ -148,6 +149,9 @@ project/
 |--------|---------------|---------|
 | `BOOTSTRAP_PROMPT.md` | `/bootstrap` | Initial setup for new repositories |
 | `DEBUG_PROMPT.md` | `/debug` | Diagnose and fix bugs |
+| `SUBMIT_ISSUE_PROMPT.md` | `/submit-issue` | Log a known issue (capture only) |
+| `SUBMIT_TASK_PROMPT.md` | `/submit-task` | Capture a task (optionally held) |
+| `SUBMIT_HOLD_TASK_PROMPT.md` | `/submit-hold-task` | Create a held task with partial spec from confirmed info |
 | `RECOVERY_PROMPT.md` | - | Recover from broken states |
 | `REFRESH_PROMPT.md` | - | Regenerate stale or cluttered plans |
 
@@ -377,8 +381,12 @@ Why: Coordinating non-deterministic agents creates exponential complexity.
 |------|---------------|---------|
 | BOOTSTRAP_PROMPT.md | `/bootstrap` | Auto-setup for any repo |
 | SPEC_PROMPT.md | `/spec` | Specification development |
+| SPEC_EXISTING_TASK_PROMPT.md | - | Spec for existing tasks (no task creation) |
 | PLANNING_PROMPT.md | `/planner` | Plan generation |
 | DEBUG_PROMPT.md | `/debug` | Bug diagnosis |
+| SUBMIT_ISSUE_PROMPT.md | `/submit-issue` | Issue capture |
+| SUBMIT_TASK_PROMPT.md | `/submit-task` | Task capture |
+| SUBMIT_HOLD_TASK_PROMPT.md | `/submit-hold-task` | Held task capture |
 | RECOVERY_PROMPT.md | - | Failure recovery |
 | REFRESH_PROMPT.md | - | Plan regeneration |
 | README.md | - | This documentation |

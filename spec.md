@@ -64,6 +64,7 @@ Paths:
 - `.agents/<agent>/tasks/<task>/task.json`
 - `.agents/<agent>/sessions/<session_id>/session.json`
 - `.agents/<agent>/claims/<task>.lock`
+- `.agents/<agent>/issues/<issue_id>.md` (code agent issue tracking)
 - Optional: `.agents/<agent>/logs/<session_id>.log`
 
 ### task.json
@@ -72,6 +73,7 @@ Fields:
 - `agent`: string
 - `stage`: string
 - `status`: enum (`pending`, `running`, `incomplete`, `failed`, `completed`, `issues`)
+- `held`: boolean (backlog item excluded from run-queue)
 - `added_at`: ISO8601
 - `updated_at`: ISO8601
 - `last_session`: string or null
@@ -146,11 +148,13 @@ All commands mirror current behavior and flags.
 - Validate task name: lowercase, numbers, hyphens; max 100; no traversal.
 - Create task directory and templates (agent-specific).
 - Create `task.json` with initial stage and status `pending`.
+- `--hold` creates a backlog task excluded from `run-queue` until activated.
 
 ### queue
 - Scan `.agents/<agent>/tasks/*/task.json` to build view.
 - Group by stage, ordered by `agent.stages()`.
 - Display per-task status (pending/issues/incomplete/running/failed/completed).
+- Held tasks show under a Backlog section.
 
 ### dequeue <name>
 - Remove task directory (including `task.json` and task files).
@@ -172,6 +176,21 @@ All commands mirror current behavior and flags.
 - Claim the task with `claims/<task>.lock`.
 - Run a single stage loop (same as `run`), then release claim.
 - Repeat until no eligible tasks remain.
+- Skip held tasks.
+
+### run-next
+- Run the next eligible task for a single stage, then exit.
+- Skip held tasks.
+
+### hold/activate
+- `hold`: mark a task as held/backlog (excluded from run-queue).
+- `activate`: un-hold a task.
+
+### issues
+- List issues with filters (task, status, priority, type, source).
+
+### issue
+- Manage issues (add/assign/resolve/show).
 
 ### finish <stage> [--next <stage>] [--session <id>] [--task <task>]
 - Require a session ID from `--session` (prompted) or `METAGENT_SESSION` (fallback).

@@ -52,13 +52,20 @@ metagent uninstall         # Remove metagent globally
 metagent init [path]       # Initialize agent in repo
 metagent start             # Start new task interactively
 metagent task <name>       # Create task (used by model)
+metagent task <name> --hold  # Create backlog task (not picked up by run-queue)
+metagent hold <name>       # Hold task (exclude from run-queue)
+metagent activate <name>   # Activate held task
 metagent finish [stage] --session "<session>"    # Signal stage/task completion
 metagent finish --next <stage> --session "<session>"  # Signal iteration complete, stay in stage
 metagent run <name>        # Run loop for a task
+metagent run-next          # Run next eligible task for one stage
+metagent issues            # List issues
+metagent issue <command>   # Manage issues (add/resolve/assign/show)
 metagent debug [bug...]    # Launch debug prompt with bug context (Codex)
 metagent queue             # Show task queue
 metagent dequeue <name>    # Remove from queue
 metagent run-queue         # Process all queued tasks
+metagent set-stage <task> <stage> [--status <status>]  # Update task stage/status
 
 Options:
   --agent TYPE    Select agent (code, writer) [default: code]
@@ -75,9 +82,12 @@ Options:
   ├── code/                        # Code agent prompts
   │   ├── BOOTSTRAP_PROMPT.md
   │   ├── SPEC_PROMPT.md
+  │   ├── SPEC_EXISTING_TASK_PROMPT.md
   │   ├── PLANNING_PROMPT.md
   │   ├── DEBUG_PROMPT.md
-  │   └── SUBMIT_ISSUE_PROMPT.md
+  │   ├── SUBMIT_ISSUE_PROMPT.md
+  │   ├── SUBMIT_TASK_PROMPT.md
+  │   └── SUBMIT_HOLD_TASK_PROMPT.md
   └── writer/                      # Writer agent prompts
       ├── INIT_PROMPT.md
       ├── PLANNING_PROMPT.md
@@ -88,6 +98,8 @@ Options:
   ├── planner.md                   # /planner (code)
   ├── debug.md                     # /debug (code)
   ├── submit-issue.md              # /submit-issue (code)
+  ├── submit-task.md               # /submit-task (code)
+  ├── submit-hold-task.md          # /submit-hold-task (code)
   ├── writer-init.md               # /writer-init
   ├── writer-plan.md               # /writer-plan
   └── writer.md                    # /writer
@@ -100,7 +112,7 @@ your-repo/.agents/code/
 ├── SPEC.md                        # Project specification
 ├── AGENTS.md                      # Build commands & learnings
 ├── TECHNICAL_STANDARDS.md         # Coding patterns
-├── queue.jsonl                    # Task queue
+├── issues/                        # Issue files
 └── tasks/{taskname}/
     ├── spec/                      # Specifications
     ├── plan.md                    # Implementation plan
@@ -112,7 +124,6 @@ your-repo/.agents/code/
 ```
 your-repo/.agents/writer/
 ├── AGENTS.md                      # Writing config & learnings
-├── queue.jsonl                    # Task queue
 └── tasks/{projectname}/
     ├── content/                   # Written content
     ├── outline/                   # Structure

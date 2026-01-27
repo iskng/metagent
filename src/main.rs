@@ -8,6 +8,7 @@ mod agent;
 mod assets;
 mod commands;
 mod model;
+mod issues;
 mod prompt;
 mod state;
 mod util;
@@ -16,7 +17,7 @@ use agent::AgentKind;
 use commands::{
     cmd_debug, cmd_dequeue, cmd_finish, cmd_init, cmd_install, cmd_queue, cmd_run, cmd_run_queue,
     cmd_spec_review, cmd_start, cmd_task, cmd_review, cmd_uninstall, CommandContext, ModelChoice,
-    INTERRUPTED,
+    IssueCommands, INTERRUPTED,
 };
 use model::Model;
 use util::get_repo_root;
@@ -42,7 +43,13 @@ enum Commands {
     Uninstall,
     Init { path: Option<PathBuf> },
     Start,
-    Task { name: String },
+    Task {
+        name: String,
+        #[arg(long)]
+        hold: bool,
+    },
+    Hold { name: String },
+    Activate { name: String },
     Finish {
         stage: Option<String>,
         #[arg(long)]
@@ -53,6 +60,8 @@ enum Commands {
         task: Option<String>,
     },
     Run { name: String },
+    #[command(name = "run-next", alias = "rn")]
+    RunNext,
     #[command(alias = "q")]
     Queue { task: Option<String> },
     Dequeue { name: String },
@@ -61,6 +70,31 @@ enum Commands {
     Review { task: String, focus: Option<String> },
     #[command(name = "spec-review")]
     SpecReview { task: String },
+    #[command(name = "set-stage")]
+    SetStage {
+        name: String,
+        stage: String,
+        #[arg(long)]
+        status: Option<String>,
+    },
+    Issues {
+        #[arg(long)]
+        task: Option<String>,
+        #[arg(long)]
+        unassigned: bool,
+        #[arg(long)]
+        status: Option<String>,
+        #[arg(long)]
+        priority: Option<String>,
+        #[arg(long = "type")]
+        issue_type: Option<String>,
+        #[arg(long)]
+        source: Option<String>,
+    },
+    Issue {
+        #[command(subcommand)]
+        command: IssueCommands,
+    },
     Debug {
         #[arg(long)]
         file: Option<PathBuf>,
@@ -95,10 +129,20 @@ fn main() -> Result<()> {
             let ctx = CommandContext::new(agent, model_choice, repo_root)?;
             cmd_start(&ctx)
         }
-        Commands::Task { name } => {
+        Commands::Task { name, hold } => {
             let repo_root = get_repo_root(None)?;
             let ctx = CommandContext::new(agent, model_choice, repo_root)?;
-            cmd_task(&ctx, &name)
+            cmd_task(&ctx, &name, hold)
+        }
+        Commands::Hold { name } => {
+            let repo_root = get_repo_root(None)?;
+            let ctx = CommandContext::new(agent, model_choice, repo_root)?;
+            commands::cmd_hold(&ctx, &name)
+        }
+        Commands::Activate { name } => {
+            let repo_root = get_repo_root(None)?;
+            let ctx = CommandContext::new(agent, model_choice, repo_root)?;
+            commands::cmd_activate(&ctx, &name)
         }
         Commands::Finish {
             stage,
@@ -114,6 +158,11 @@ fn main() -> Result<()> {
             let repo_root = get_repo_root(None)?;
             let ctx = CommandContext::new(agent, model_choice, repo_root)?;
             cmd_run(&ctx, &name)
+        }
+        Commands::RunNext => {
+            let repo_root = get_repo_root(None)?;
+            let ctx = CommandContext::new(agent, model_choice, repo_root)?;
+            commands::cmd_run_next(&ctx)
         }
         Commands::Queue { task } => {
             let repo_root = get_repo_root(None)?;
@@ -139,6 +188,28 @@ fn main() -> Result<()> {
             let repo_root = get_repo_root(None)?;
             let ctx = CommandContext::new(agent, model_choice, repo_root)?;
             cmd_spec_review(&ctx, &task)
+        }
+        Commands::SetStage { name, stage, status } => {
+            let repo_root = get_repo_root(None)?;
+            let ctx = CommandContext::new(agent, model_choice, repo_root)?;
+            commands::cmd_set_stage(&ctx, &name, &stage, status)
+        }
+        Commands::Issues {
+            task,
+            unassigned,
+            status,
+            priority,
+            issue_type,
+            source,
+        } => {
+            let repo_root = get_repo_root(None)?;
+            let ctx = CommandContext::new(agent, model_choice, repo_root)?;
+            commands::cmd_issues(&ctx, task, unassigned, status, priority, issue_type, source)
+        }
+        Commands::Issue { command } => {
+            let repo_root = get_repo_root(None)?;
+            let ctx = CommandContext::new(agent, model_choice, repo_root)?;
+            commands::cmd_issue(&ctx, command)
         }
         Commands::Debug { file, stdin, bug } => {
             let repo_root = get_repo_root(None)?;

@@ -43,10 +43,10 @@ pub fn issues_text(agent: AgentKind, status: Option<&TaskStatus>, task: Option<&
         None => return (String::new(), String::new()),
     };
     let header = format!(
-        "0d. Check @.agents/code/tasks/{task}/issues.md - Open issues from review MUST be addressed first\n\n1. **PRIORITY: Review Issues** - If issues.md exists with open issues, address those FIRST. These are requirements clarifications or architectural decisions needed. Update issue status to \"resolved\" when addressed."
+        "0d. Review open issues first: `metagent issues --task {task}`\n\n1. **PRIORITY: Issues** - Resolve all open issues before proceeding. Mark issues resolved with `metagent issue resolve <id>`."
     );
     let mode = format!(
-        "99999999999999. **REVIEW ISSUES:** This task returned from review with issues. All issues in @.agents/code/tasks/{task}/issues.md must be resolved before finishing this phase."
+        "99999999999999. **REVIEW ISSUES:** This task has open issues. Resolve them before finishing this phase."
     );
     (header, mode)
 }

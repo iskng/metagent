@@ -11,7 +11,9 @@
 
 4. Output ALL findings the author would definitely want to fix. Do not stop at the first qualifying finding - continue until every qualifying finding is listed. If no finding qualifies, output none.
 
-5. Create/update @.agents/code/tasks/{task}/issues.md with findings. For each issue: clear problem description, file path and line number, concrete suggested fix (code snippets ≤3 lines). Priority: [P0] blocking/universal, [P1] urgent, [P2] normal, [P3] low.
+5. For each finding, create an issue using the CLI. Use `--type spec` for spec issues and `--type build` for build issues:
+   `metagent issue add --title "<short title>" --task "{task}" --priority P2 --type build --source review --stdin-body`
+   Include the detailed problem, file:line, and suggested fix in the body.
 
 Format:
 # Code Review - {task}
@@ -24,6 +26,7 @@ Issues requiring spec phase (requirements/architecture decisions).
 ### [P1] Issue title
 - **Problem:** {description}
 - **Decision needed:** {what to decide}
+- **Issue:** {issue-id}
 - **Status:** open
 
 ## Build Issues
@@ -33,6 +36,7 @@ Issues requiring build phase (implementation fixes).
 - **Commit:** {hash}
 - **Problem:** {description}
 - **Suggested fix:** {concrete fix}
+- **Issue:** {issue-id}
 - **Status:** open
 
 ## Suggestions

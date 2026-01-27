@@ -136,7 +136,7 @@ EOF
 
 4. ALWAYS KEEP @plan.md up to date with your learnings about the task. After wrapping up/finishing your turn append a short session-x summary with what was accomplished and any relevant notes.
 
-5. When you learn something new about how to run the build/tests make sure you update @.agents/code/AGENT.md but keep it brief.
+5. When you learn something new about how to run the build/tests make sure you update @.agents/code/AGENTS.md but keep it brief.
 
 999999. Important: We want single sources of truth, no migrations/adapters. If tests unrelated to your work fail then it's your job to resolve these tests as part of the increment of change.
 99999999. Important: When authoring tests capture the WHY - document importance in docstrings.
@@ -144,7 +144,7 @@ EOF
 9999999999. You may add extra logging if required to be able to debug the issues.
 99999999999. If you find inconsistencies in the specs/* then use the oracle (think extra hard) and then update the specs.
 999999999999. FULL IMPLEMENTATIONS ONLY. NO PLACEHOLDERS. NO STUBS. NO TODO COMMENTS. DO NOT IMPLEMENT PLACEHOLDER OR SIMPLE IMPLEMENTATIONS. WE WANT FULL IMPLEMENTATIONS. DO IT OR I WILL YELL AT YOU
-9999999999999. SUPER IMPORTANT DO NOT IGNORE. DO NOT PLACE STATUS REPORT UPDATES INTO @.agents/code/AGENT.md
+9999999999999. SUPER IMPORTANT DO NOT IGNORE. DO NOT PLACE STATUS REPORT UPDATES INTO @.agents/code/AGENTS.md
 99999999999999. **WHEN ITEM DONE:** run \`cd "{repo}" && METAGENT_SESSION="{session}" METAGENT_TASK="{task}" metagent --agent code finish --next build\` to signal iteration complete (more items remain).
 999999999999999. **WHEN ALL ASPECTS OF THE PLAN.md ARE COMPLETE:** run a full \`cargo build\` to verify everything compiles, then run \`cd "{repo}" && METAGENT_SESSION="{session}" METAGENT_TASK="{task}" metagent --agent code finish\` to signal task complete (all items done).
 {issues_mode}
@@ -172,6 +172,8 @@ agent_slash_commands() {
         ln -sf "$prompt_dir/PLANNING_PROMPT.md" "$commands_dir/planner.md"
         ln -sf "$prompt_dir/DEBUG_PROMPT.md" "$commands_dir/debug.md"
         ln -sf "$prompt_dir/SUBMIT_ISSUE_PROMPT.md" "$commands_dir/submit-issue.md"
+        ln -sf "$prompt_dir/SUBMIT_TASK_PROMPT.md" "$commands_dir/submit-task.md"
+        ln -sf "$prompt_dir/SUBMIT_HOLD_TASK_PROMPT.md" "$commands_dir/submit-hold-task.md"
     done
-    echo -e "  ${GREEN}✓${NC} /bootstrap, /spec, /planner, /debug, /submit-issue"
+    echo -e "  ${GREEN}✓${NC} /bootstrap, /spec, /planner, /debug, /submit-issue, /submit-task, /submit-hold-task"
 }

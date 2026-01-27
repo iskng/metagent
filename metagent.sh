@@ -248,10 +248,10 @@ render_prompt() {
                 local status
                 status=$(json_field "$task_entry" "status")
                 if [ "$status" = "issues" ]; then
-                    issues_header="0d. Check @.agents/code/tasks/${taskname}/issues.md - Open issues from review MUST be addressed first
+                    issues_header="0d. Review open issues first: \`metagent issues --task ${taskname}\`
 
-1. **PRIORITY: Review Issues** - If issues.md exists with open issues, address those FIRST. These are requirements clarifications or architectural decisions needed. Update issue status to \"resolved\" when addressed."
-                    issues_mode="99999999999999. **REVIEW ISSUES:** This task returned from review with issues. All issues in @.agents/code/tasks/${taskname}/issues.md must be resolved before finishing this phase."
+1. **PRIORITY: Issues** - Resolve all open issues before proceeding. Mark issues resolved with \`metagent issue resolve <id>\`."
+                    issues_mode="99999999999999. **REVIEW ISSUES:** This task has open issues. Resolve them before finishing this phase."
                 fi
             fi
         fi

@@ -31,8 +31,8 @@ Study these files first (in order):
 - @.agents/code/SPEC.md - **Project specification** (what this project is and does)
 - @.agents/code/AGENTS.md - Project build commands and structure
 - @.agents/code/TECHNICAL_STANDARDS.md - Coding patterns to follow
-- @.agents/code/inbox/ - Unassigned issues (if exists)
-- @.agents/code/inbox.md - Inbox index (if exists)
+- @.agents/code/issues/ - Issue files (open + resolved)
+- `metagent issues --status open` - Open issue list
 
 ---
 
@@ -110,8 +110,8 @@ Search each task's spec/ for matches
 ```
 
 If no matching task found:
-- Treat as an unassigned bug and create an inbox issue in `.agents/code/inbox/`
-- Update `.agents/code/inbox.md` with the new issue
+- Treat as an unassigned bug and create an issue with no task:
+  `metagent issue add --title "<short title>" --priority P1 --type bug --source debug --stdin-body`
 - Ask the user whether to create a new task or hotfix later, but **do not** create a task unless asked
 
 ### 2.3 Load Task Context
@@ -123,7 +123,7 @@ Once taskname identified, read in order:
 ├── spec/types.md
 ├── spec/*.md (all other specs)
 ├── plan.md
-└── issues/ (if exists)
+└── (use `metagent issues --task {taskname}` to review open issues)
 ```
 
 ---
@@ -179,43 +179,20 @@ Error trace analysis:
 
 ## PART 4: BUG DOCUMENTATION
 
-### 4.1 Create Issue File
+### 4.1 Create Issue via CLI
 
-If a task is identified, store the issue under that task. If no task is identified, store it in the inbox.
-
-Create directory if needed:
-```bash
-mkdir -p .agents/code/tasks/{taskname}/issues
-# OR, if unassigned:
-mkdir -p .agents/code/inbox
-```
-
-Generate bug title (lowercase, kebab-case):
-- `null-pointer-in-auth-handler`
-- `timeout-on-large-payload`
-- `validation-allows-empty-string`
-
-Create the issue file:
-- Task issue: `.agents/code/tasks/{taskname}/issues/{taskname}-{bug-title}.md`
-- Inbox issue: `.agents/code/inbox/{bug-title}.md`
+If a task is identified, include `--task {taskname}`. If no task is identified, omit `--task` (unassigned).
 
 Use this template:
 
-```markdown
+```bash
+cat <<'EOF' | metagent issue add --title "{Human-Readable Title}" --task {taskname} --priority P1 --type bug --source debug --stdin-body
 # Bug: {Human-Readable Title}
 
-> Created: {date}
-> Status: OPEN
-> Priority: {Critical/High/Medium/Low}
-> Task: {taskname | unassigned}
-> Source: debug
-
 ## Description
-
 {Clear description of the bug}
 
 ## Reproduction
-
 1. {Step 1}
 2. {Step 2}
 3. {Step 3}
@@ -224,71 +201,33 @@ Use this template:
 **Actual:** {What happens instead}
 
 ## Error Output
-
 ```
 {Error message/stack trace}
 ```
 
 ## Root Cause
-
 {Explanation from Part 3.3}
 
 ## Affected Files
-
-- `{file}:{line}` - {issue description}
 - `{file}:{line}` - {issue description}
 
 ## Related Spec (if known)
-
 - `spec/{file}.md` - {relevant section}
 
 ## Fix Strategy
-
 {High-level approach to fix}
 
 ## Test Plan
-
 - [ ] Write failing test that reproduces the bug
 - [ ] Implement fix
 - [ ] Verify test passes
 - [ ] Check for regressions
-
----
-
-## Progress Log
-
-### {date} - Issue Created
-- Identified root cause
-- Created issue file
-
+EOF
 ```
 
-### 4.2 Update Inbox Index
+### 4.2 Update Task Plan (if assigned)
 
-Create or update `.agents/code/inbox.md`:
-
-```markdown
-# Inbox
-
-> Last updated: {date}
-
-## Open
-
-| Issue | Priority | Task | Created |
-|------|----------|------|---------|
-| [{bug-title}](inbox/{bug-title}.md) | {priority} | unassigned | {date} |
-| [{bug-title}](tasks/{taskname}/issues/{taskname}-{bug-title}.md) | {priority} | {taskname} | {date} |
-
-## Resolved
-
-| Issue | Resolution | Resolved |
-|------|------------|----------|
-| [{bug-title}](inbox/{bug-title}.md) | Fixed | {date} |
-```
-
-### 4.3 Update Task Plan (if assigned)
-
-If the issue is assigned to a task, add it to `.agents/code/tasks/{taskname}/plan.md`:
+If the issue is assigned to a task, add it to `.agents/code/tasks/{taskname}/plan.md` and include the issue ID:
 
 ```markdown
 ## Bugs
@@ -296,7 +235,7 @@ If the issue is assigned to a task, add it to `.agents/code/tasks/{taskname}/pla
 > Bugs discovered during implementation - fix before proceeding
 
 - [ ] BUG: {bug-title} (priority: {priority})
-  - Issue: issues/{taskname}-{bug-title}.md
+  - Issue: {issue-id}
   - Root cause: {brief}
   - Fix approach: {brief}
   - Blocks: {what can't proceed until fixed}
@@ -306,7 +245,8 @@ If the issue is assigned to a task, add it to `.agents/code/tasks/{taskname}/pla
 
 ## PART 5: WRITE FAILING TEST
 
-If the issue is unassigned (inbox), pause here and ask whether to create a task or hotfix before writing tests or making code changes.
+If the issue is unassigned, pause here and ask whether to create a task or hotfix (or assign it to an existing task) before writing tests or making code changes.
+Use `metagent issue assign {issue-id} --task {taskname}` when you have a task.
 
 ### 5.1 Identify Test Location
 
@@ -341,7 +281,7 @@ Create minimal test that fails:
 
 ```{language}
 // Test for bug: {bug-title}
-// Issue: .agents/code/tasks/{taskname}/issues/{taskname}-{bug-title}.md
+// Issue: .agents/code/issues/{issue-id}.md
 // Expected: FAIL until bug is fixed
 
 {test implementation}
@@ -419,8 +359,8 @@ When fixed, update issue file:
 - Commits: {hashes}
 ```
 
-Update `.agents/code/inbox.md`:
-- Move from "Open" to "Resolved"
+Mark the issue resolved:
+- `metagent issue resolve {issue-id} --resolution "{what changed}"`
 
 Update `plan.md`:
 - Mark bug task as complete
@@ -439,14 +379,13 @@ Bug Reported
 ├── Identify related task
 │   ├── Found matching task?
 │   │   ├── Yes → Load task context
-│   │   └── No → Create inbox issue, ask for triage
+│   │   └── No → Create unassigned issue, ask for triage
 │   │
 │   └── Analyze root cause
 │       └── Compare to spec
 │
 ├── Document the bug
-│   ├── Create issue file
-│   ├── Update inbox.md index
+│   ├── Create issue via CLI
 │   └── Update task plan.md (if assigned)
 │
 ├── Write failing test
@@ -465,14 +404,14 @@ Bug Reported
 
 ```bash
 # List all issues
-find .agents/code/tasks -name "*.md" -path "*/issues/*" | head -20
-find .agents/code/inbox -name "*.md" | head -20
+metagent issues --status all
+find .agents/code/issues -name "*.md" | head -20
 
 # Search for specific bug
 rg "BUG:" .agents/code/tasks/*/plan.md
 
-# Count open inbox issues
-rg -c "OPEN" .agents/code/inbox.md
+# Count open unassigned issues
+metagent issues --unassigned
 
 # Run specific failing test
 {TEST_COMMAND} --filter {test_name}
@@ -499,7 +438,7 @@ git log --oneline -10 -- {affected_files}
 1. **Document first** - Create issue file before fixing
 2. **Test first** - Write failing test before implementing fix
 3. **Track progress** - Log every attempt in issue file
-4. **Update all locations** - Issue file, inbox.md, plan.md
+4. **Update all locations** - Issue file and plan.md
 5. **Verify thoroughly** - Full test suite after fix
 
 ## PRIORITY

@@ -33,6 +33,18 @@ impl TaskStatus {
         }
     }
 
+    pub fn from_str(value: &str) -> Result<Self> {
+        match value.trim().to_lowercase().as_str() {
+            "pending" => Ok(Self::Pending),
+            "running" => Ok(Self::Running),
+            "incomplete" => Ok(Self::Incomplete),
+            "failed" => Ok(Self::Failed),
+            "completed" => Ok(Self::Completed),
+            "issues" => Ok(Self::Issues),
+            other => bail!("Invalid task status: {}", other),
+        }
+    }
+
     pub fn styled(&self) -> String {
         let symbol = self.symbol();
         match self {
@@ -66,6 +78,8 @@ pub struct TaskState {
     pub agent: String,
     pub stage: String,
     pub status: TaskStatus,
+    #[serde(default)]
+    pub held: bool,
     pub added_at: String,
     pub updated_at: String,
     pub last_session: Option<String>,
@@ -322,12 +336,14 @@ pub fn create_task_state(
     task: &str,
     stage: &str,
     added_at: &str,
+    held: bool,
 ) -> Result<TaskState> {
     let task_state = TaskState {
         task: task.to_string(),
         agent: agent.to_string(),
         stage: stage.to_string(),
         status: TaskStatus::Pending,
+        held,
         added_at: added_at.to_string(),
         updated_at: added_at.to_string(),
         last_session: None,

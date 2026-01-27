@@ -1,4 +1,5 @@
 use anyhow::{bail, Context, Result};
+use clap::Subcommand;
 use owo_colors::OwoColorize;
 use std::env;
 use std::fs;
@@ -10,6 +11,11 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use crate::agent::AgentKind;
+use crate::issues::{
+    append_resolution, count_open_issues, filter_issues, issue_path, list_issues, new_issue,
+    sort_issues, IssueFilter, IssuePriority, IssueSource, IssueStatus, IssueStatusFilter,
+    IssueType,
+};
 use crate::model::Model;
 use crate::prompt::{issues_text, parallelism_text, render_prompt, PromptContext};
 use crate::state::{
@@ -23,10 +29,69 @@ use crate::util::{
 
 pub static INTERRUPTED: AtomicBool = AtomicBool::new(false);
 
+#[cfg(unix)]
+fn link_prompt(target: &Path, link: &Path) -> Result<()> {
+    if link.exists() {
+        fs::remove_file(link).ok();
+    }
+    std::os::unix::fs::symlink(target, link)
+        .with_context(|| format!("Failed to link {}", link.display()))?;
+    Ok(())
+}
+
+#[cfg(not(unix))]
+fn link_prompt(target: &Path, link: &Path) -> Result<()> {
+    if link.exists() {
+        fs::remove_file(link).ok();
+    }
+    fs::copy(target, link)
+        .with_context(|| format!("Failed to copy {}", link.display()))?;
+    Ok(())
+}
+
 #[derive(Clone, Debug)]
 pub struct ModelChoice {
     pub model: Model,
     pub explicit: bool,
+}
+
+#[derive(Subcommand)]
+pub enum IssueCommands {
+    Add {
+        #[arg(long)]
+        title: String,
+        #[arg(long)]
+        task: Option<String>,
+        #[arg(long)]
+        priority: Option<String>,
+        #[arg(long = "type")]
+        issue_type: Option<String>,
+        #[arg(long)]
+        source: Option<String>,
+        #[arg(long)]
+        file: Option<String>,
+        #[arg(long)]
+        stage: Option<String>,
+        #[arg(long)]
+        body: Option<String>,
+        #[arg(long)]
+        stdin_body: bool,
+    },
+    Resolve {
+        id: String,
+        #[arg(long)]
+        resolution: Option<String>,
+    },
+    Assign {
+        id: String,
+        #[arg(long)]
+        task: String,
+        #[arg(long)]
+        stage: Option<String>,
+    },
+    Show {
+        id: String,
+    },
 }
 
 #[derive(Clone, Debug)]
@@ -189,6 +254,25 @@ pub fn cmd_install() -> Result<()> {
         }
     }
 
+    let claude_commands = home.join(".claude/commands");
+    let codex_commands = home.join(".codex/prompts");
+    for dir in [&claude_commands, &codex_commands] {
+        fs::create_dir_all(dir)?;
+    }
+    for agent in [AgentKind::Code, AgentKind::Writer] {
+        let prompt_dir = metagent_dir.join(agent.name());
+        for (prompt_file, command_name) in agent.slash_commands() {
+            let target = prompt_dir.join(prompt_file);
+            if !target.exists() {
+                continue;
+            }
+            for commands_dir in [&claude_commands, &codex_commands] {
+                let link = commands_dir.join(format!("{command_name}.md"));
+                link_prompt(&target, &link)?;
+            }
+        }
+    }
+
     if let Ok(path) = env::var("PATH") {
         let bin_str = bin_dir.display().to_string();
         if !path.split(':').any(|entry| entry == bin_str) {
@@ -268,6 +352,9 @@ pub fn cmd_init(agent: AgentKind, target: Option<PathBuf>, model_choice: ModelCh
     }
 
     fs::create_dir_all(agent_dir.join("tasks"))?;
+    if agent == AgentKind::Code {
+        fs::create_dir_all(agent_dir.join("issues"))?;
+    }
     for (file, content) in agent.template_files() {
         let dest = agent_dir.join(file);
         if dest.exists() && !overwrite {
@@ -288,7 +375,7 @@ pub fn cmd_init(agent: AgentKind, target: Option<PathBuf>, model_choice: ModelCh
     Ok(())
 }
 
-pub fn cmd_task(ctx: &CommandContext, task: &str) -> Result<()> {
+pub fn cmd_task(ctx: &CommandContext, task: &str, hold: bool) -> Result<()> {
     validate_task_name(task)?;
     let task_path = task_state_path(&ctx.agent_root, task);
     let task_dir_path = task_dir(&ctx.agent_root, task);
@@ -297,17 +384,64 @@ pub fn cmd_task(ctx: &CommandContext, task: &str) -> Result<()> {
         let task_state = load_task(&task_path)?;
         println!("Task '{}' already exists", task);
         println!("  Stage: {}", task_state.stage);
+        if task_state.held {
+            println!("  Status: held (backlog)");
+        }
         println!("  Directory: {}", task_dir_path.display());
         return Ok(());
     }
 
     ctx.agent.create_task(&task_dir_path, task)?;
     let timestamp = now_iso();
-    create_task_state(&ctx.agent_root, ctx.agent.name(), task, ctx.agent.initial_stage(), &timestamp)?;
+    create_task_state(
+        &ctx.agent_root,
+        ctx.agent.name(),
+        task,
+        ctx.agent.initial_stage(),
+        &timestamp,
+        hold,
+    )?;
 
     println!("Created task: {}", task);
     println!("  Directory: {}", task_dir_path.display());
     println!("  Stage: {}", ctx.agent.initial_stage());
+    if hold {
+        println!("  Status: held (backlog)");
+    }
+    Ok(())
+}
+
+pub fn cmd_hold(ctx: &CommandContext, task: &str) -> Result<()> {
+    validate_task_name(task)?;
+    let task_path = task_state_path(&ctx.agent_root, task);
+    if !task_path.exists() {
+        bail!("Task '{}' not found", task);
+    }
+    update_task(&task_path, |task_state| {
+        if task_state.status == TaskStatus::Running {
+            bail!("Task '{}' is running. Finish it before holding.", task);
+        }
+        task_state.held = true;
+        task_state.updated_at = now_iso();
+        Ok(())
+    })?;
+    println!("Held '{}'", task);
+    Ok(())
+}
+
+pub fn cmd_activate(ctx: &CommandContext, task: &str) -> Result<()> {
+    validate_task_name(task)?;
+    let task_path = task_state_path(&ctx.agent_root, task);
+    if !task_path.exists() {
+        bail!("Task '{}' not found", task);
+    }
+    update_task(&task_path, |task_state| {
+        task_state.held = false;
+        task_state.updated_at = now_iso();
+        Ok(())
+    })?;
+    sync_task_status_for_issues(&ctx.agent_root, task)?;
+    println!("Activated '{}'", task);
     Ok(())
 }
 
@@ -319,6 +453,9 @@ pub fn cmd_queue(ctx: &CommandContext, task: Option<&str>) -> Result<()> {
             let task_state = load_task(&task_path)?;
             println!("Task '{}' already exists", task);
             println!("  Stage: {}", task_state.stage);
+            if task_state.held {
+                println!("  Status: held (backlog)");
+            }
             return Ok(());
         }
 
@@ -328,7 +465,14 @@ pub fn cmd_queue(ctx: &CommandContext, task: Option<&str>) -> Result<()> {
         }
 
         let timestamp = now_iso();
-        create_task_state(&ctx.agent_root, ctx.agent.name(), task, ctx.agent.initial_stage(), &timestamp)?;
+        create_task_state(
+            &ctx.agent_root,
+            ctx.agent.name(),
+            task,
+            ctx.agent.initial_stage(),
+            &timestamp,
+            false,
+        )?;
         println!("Queued '{}' (stage: {})", task, ctx.agent.initial_stage());
         return Ok(());
     }
@@ -339,32 +483,174 @@ pub fn cmd_queue(ctx: &CommandContext, task: Option<&str>) -> Result<()> {
         return Ok(());
     }
 
+    let issue_counts = match list_issues(&ctx.agent_root) {
+        Ok(issues) => count_open_issues(&issues),
+        Err(err) => {
+            eprintln!("Warning: failed to load issues: {}", err);
+            Default::default()
+        }
+    };
+    if issue_counts.unassigned > 0 {
+        println!(
+            "Unassigned issues: {} (run 'metagent issues --unassigned')",
+            issue_counts.unassigned
+        );
+    }
+
+    let mut backlog: Vec<&TaskState> = tasks.iter().filter(|t| t.held).collect();
     println!("{}", "Tasks:".bold());
     for stage in ctx.agent.stages() {
         if *stage == "completed" {
             continue;
         }
-        let mut stage_tasks: Vec<&TaskState> = tasks.iter().filter(|t| t.stage == *stage).collect();
+        let mut stage_tasks: Vec<&TaskState> = tasks
+            .iter()
+            .filter(|t| !t.held && t.stage == *stage)
+            .collect();
         if stage_tasks.is_empty() {
             continue;
         }
         stage_tasks.sort_by(|a, b| a.added_at.cmp(&b.added_at));
         println!("{}:", ctx.agent.stage_label(stage));
         for task in stage_tasks {
-            println!("  {} {}", task.status.styled(), task.task);
+            let issue_count = issue_counts.per_task.get(&task.task).copied().unwrap_or(0);
+            if issue_count > 0 {
+                println!(
+                    "  {} {} [issues: {}]",
+                    task.status.styled(),
+                    task.task,
+                    issue_count
+                );
+            } else {
+                println!("  {} {}", task.status.styled(), task.task);
+            }
         }
         println!();
     }
 
-    let completed: Vec<&TaskState> = tasks.iter().filter(|t| t.stage == "completed").collect();
+    let mut completed: Vec<&TaskState> = tasks.iter().filter(|t| !t.held && t.stage == "completed").collect();
     if !completed.is_empty() {
+        completed.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
         println!("{}:", ctx.agent.stage_label("completed").dimmed());
         for task in completed {
-            println!("  {} {}", task.status.styled(), task.task.dimmed());
+            let issue_count = issue_counts.per_task.get(&task.task).copied().unwrap_or(0);
+            if issue_count > 0 {
+                println!(
+                    "  {} {} [issues: {}]",
+                    task.status.styled(),
+                    task.task.dimmed(),
+                    issue_count
+                );
+            } else {
+                println!("  {} {}", task.status.styled(), task.task.dimmed());
+            }
+        }
+    }
+
+    if !backlog.is_empty() {
+        backlog.sort_by(|a, b| a.added_at.cmp(&b.added_at));
+        println!("\nBacklog:");
+        for task in backlog {
+            let issue_count = issue_counts.per_task.get(&task.task).copied().unwrap_or(0);
+            if issue_count > 0 {
+                println!(
+                    "  {} {} [issues: {}] (stage: {})",
+                    task.status.styled(),
+                    task.task,
+                    issue_count,
+                    ctx.agent.stage_label(&task.stage)
+                );
+            } else {
+                println!(
+                    "  {} {} (stage: {})",
+                    task.status.styled(),
+                    task.task,
+                    ctx.agent.stage_label(&task.stage)
+                );
+            }
         }
     }
 
     Ok(())
+}
+
+pub fn cmd_issues(
+    ctx: &CommandContext,
+    task: Option<String>,
+    unassigned: bool,
+    status: Option<String>,
+    priority: Option<String>,
+    issue_type: Option<String>,
+    source: Option<String>,
+) -> Result<()> {
+    ensure_code_agent(ctx)?;
+    if unassigned && task.is_some() {
+        bail!("Use --task or --unassigned, not both");
+    }
+    if let Some(task) = task.as_deref() {
+        validate_task_name(task)?;
+    }
+    let status_filter = parse_status_filter(status.as_deref())?;
+    let priority = parse_priority(priority.as_deref())?;
+    let issue_type = parse_issue_type(issue_type.as_deref())?;
+    let source = parse_issue_source(source.as_deref())?;
+
+    let filter = IssueFilter {
+        status: status_filter,
+        task,
+        unassigned,
+        issue_type,
+        priority,
+        source,
+    };
+
+    let issues = list_issues(&ctx.agent_root)?;
+    let mut issues = filter_issues(issues, &filter);
+    sort_issues(&mut issues);
+
+    if issues.is_empty() {
+        println!("{}", "No issues".dimmed());
+        return Ok(());
+    }
+
+    let heading = match status_filter {
+        IssueStatusFilter::Open => "Open issues",
+        IssueStatusFilter::Resolved => "Resolved issues",
+        IssueStatusFilter::All => "Issues",
+    };
+    println!("{}:", heading);
+    for issue in issues {
+        let task = issue.task.as_deref().unwrap_or("-");
+        let mut line = format!(
+            "  [{}] {} {}  task: {}  type: {}  source: {}",
+            issue.priority, issue.id, issue.title, task, issue.issue_type, issue.source
+        );
+        if status_filter == IssueStatusFilter::All {
+            line.push_str(&format!("  status: {}", issue.status));
+        }
+        println!("{}", line);
+    }
+    Ok(())
+}
+
+pub fn cmd_issue(ctx: &CommandContext, command: IssueCommands) -> Result<()> {
+    ensure_code_agent(ctx)?;
+    match command {
+        IssueCommands::Add {
+            title,
+            task,
+            priority,
+            issue_type,
+            source,
+            file,
+            stage,
+            body,
+            stdin_body,
+        } => cmd_issue_add(ctx, title, task, priority, issue_type, source, file, stage, body, stdin_body),
+        IssueCommands::Resolve { id, resolution } => cmd_issue_resolve(ctx, &id, resolution),
+        IssueCommands::Assign { id, task, stage } => cmd_issue_assign(ctx, &id, &task, stage),
+        IssueCommands::Show { id } => cmd_issue_show(ctx, &id),
+    }
 }
 
 pub fn cmd_dequeue(ctx: &CommandContext, task: &str) -> Result<()> {
@@ -474,6 +760,15 @@ pub fn cmd_run(ctx: &CommandContext, task: &str) -> Result<()> {
             return Ok(());
         }
 
+        if task_state.held {
+            update_task(&task_path, |task_state| {
+                task_state.held = false;
+                task_state.updated_at = now_iso();
+                Ok(())
+            })?;
+            println!("Activating held task '{}'", task);
+        }
+
         update_task(&task_path, |task_state| {
             task_state.status = TaskStatus::Running;
             task_state.updated_at = now_iso();
@@ -522,25 +817,7 @@ pub fn cmd_run_queue(ctx: &CommandContext) -> Result<()> {
 
     loop {
         let tasks = list_tasks(&ctx.agent_root);
-        let mut candidate: Option<TaskState> = None;
-        for stage in ctx.agent.stages() {
-            if *stage == "completed" {
-                continue;
-            }
-            let mut stage_tasks: Vec<TaskState> = tasks
-                .iter()
-                .filter(|t| t.stage == *stage && matches!(t.status, TaskStatus::Pending | TaskStatus::Incomplete | TaskStatus::Issues))
-                .cloned()
-                .collect();
-            if stage_tasks.is_empty() {
-                continue;
-            }
-            stage_tasks.sort_by(|a, b| a.added_at.cmp(&b.added_at));
-            candidate = stage_tasks.into_iter().next();
-            break;
-        }
-
-        let Some(task_state) = candidate else {
+        let Some(task_state) = next_eligible_task(ctx.agent, &tasks) else {
             println!("Queue processing complete.");
             return Ok(());
         };
@@ -577,6 +854,180 @@ pub fn cmd_run_queue(ctx: &CommandContext) -> Result<()> {
             }
         }
     }
+}
+
+pub fn cmd_run_next(ctx: &CommandContext) -> Result<()> {
+    let tasks = list_tasks(&ctx.agent_root);
+    if tasks.is_empty() {
+        println!("No tasks");
+        return Ok(());
+    }
+
+    for task in tasks.iter().filter(|t| t.status == TaskStatus::Running && t.stage != "completed") {
+        let task_path = task_state_path(&ctx.agent_root, &task.task);
+        update_task(&task_path, |task_state| {
+            task_state.status = TaskStatus::Incomplete;
+            task_state.updated_at = now_iso();
+            Ok(())
+        })?;
+    }
+
+    let tasks = list_tasks(&ctx.agent_root);
+    let Some(task_state) = next_eligible_task(ctx.agent, &tasks) else {
+        println!("No eligible tasks.");
+        return Ok(());
+    };
+
+    let claim = claim_task(&ctx.agent_root, &task_state.task, 3600, &ctx.host)?;
+    let Some(_guard) = claim else {
+        println!("Task '{}' is already claimed.", task_state.task);
+        return Ok(());
+    };
+
+    let task_path = task_state_path(&ctx.agent_root, &task_state.task);
+    update_task(&task_path, |task_state| {
+        task_state.status = TaskStatus::Running;
+        task_state.updated_at = now_iso();
+        Ok(())
+    })?;
+
+    let result = run_stage(ctx, Some(&task_state.task), &task_state.stage, None)?;
+    match result {
+        StageResult::Finished(_) => {}
+        StageResult::Interrupted => {
+            update_task(&task_path, |task_state| {
+                task_state.status = TaskStatus::Incomplete;
+                task_state.updated_at = now_iso();
+                Ok(())
+            })?;
+        }
+        StageResult::NoFinish => {
+            update_task(&task_path, |task_state| {
+                task_state.status = TaskStatus::Failed;
+                task_state.updated_at = now_iso();
+                Ok(())
+            })?;
+        }
+    }
+
+    Ok(())
+}
+
+fn cmd_issue_add(
+    ctx: &CommandContext,
+    title: String,
+    task: Option<String>,
+    priority: Option<String>,
+    issue_type: Option<String>,
+    source: Option<String>,
+    file: Option<String>,
+    stage: Option<String>,
+    body: Option<String>,
+    stdin_body: bool,
+) -> Result<()> {
+    if stdin_body && body.is_some() {
+        bail!("Use --body or --stdin-body, not both");
+    }
+    if title.trim().is_empty() {
+        bail!("Issue title cannot be empty");
+    }
+    let body = if stdin_body {
+        let mut input = String::new();
+        std::io::stdin().read_to_string(&mut input)?;
+        input
+    } else {
+        body.unwrap_or_default()
+    };
+    let body = if body.trim().is_empty() {
+        None
+    } else {
+        Some(body.trim().to_string())
+    };
+
+    let priority = parse_priority(priority.as_deref())?.unwrap_or(IssuePriority::P2);
+    let issue_type = parse_issue_type(issue_type.as_deref())?.unwrap_or(IssueType::Build);
+    let source = parse_issue_source(source.as_deref())?.unwrap_or(IssueSource::Manual);
+    let task = if let Some(task) = task {
+        validate_task_name(&task)?;
+        Some(task)
+    } else {
+        None
+    };
+
+    let issue = new_issue(
+        title,
+        IssueStatus::Open,
+        priority,
+        task.clone(),
+        issue_type.clone(),
+        source,
+        file,
+        body,
+    );
+    let path = issue_path(&ctx.agent_root, &issue.id);
+    crate::issues::save_issue(&path, &issue)?;
+
+    if let Some(task) = task {
+        if let Some(stage) = stage.as_deref() {
+            validate_issue_stage(ctx.agent, stage)?;
+        }
+        let default_stage = issue_default_stage(ctx.agent, &issue_type);
+        update_task_for_issue(&ctx.agent_root, &task, stage.as_deref(), default_stage.as_deref())?;
+    }
+
+    println!("Created issue {}", issue.id);
+    Ok(())
+}
+
+fn cmd_issue_resolve(ctx: &CommandContext, id: &str, resolution: Option<String>) -> Result<()> {
+    let path = issue_path(&ctx.agent_root, id);
+    if !path.exists() {
+        bail!("Issue '{}' not found", id);
+    }
+    let mut issue = crate::issues::load_issue(&path)?;
+    issue.status = IssueStatus::Resolved;
+    issue.updated_at = now_iso();
+    if let Some(resolution) = resolution {
+        issue.body = Some(append_resolution(issue.body.take(), &resolution));
+    }
+    crate::issues::save_issue(&path, &issue)?;
+
+    if let Some(task) = issue.task.as_ref() {
+        sync_task_status_for_issues(&ctx.agent_root, task)?;
+    }
+
+    println!("Resolved issue {}", id);
+    Ok(())
+}
+
+fn cmd_issue_assign(ctx: &CommandContext, id: &str, task: &str, stage: Option<String>) -> Result<()> {
+    validate_task_name(task)?;
+    let path = issue_path(&ctx.agent_root, id);
+    if !path.exists() {
+        bail!("Issue '{}' not found", id);
+    }
+    let mut issue = crate::issues::load_issue(&path)?;
+    issue.task = Some(task.to_string());
+    issue.updated_at = now_iso();
+    crate::issues::save_issue(&path, &issue)?;
+
+    if let Some(stage) = stage.as_deref() {
+        validate_issue_stage(ctx.agent, stage)?;
+    }
+    let default_stage = issue_default_stage(ctx.agent, &issue.issue_type);
+    update_task_for_issue(&ctx.agent_root, task, stage.as_deref(), default_stage.as_deref())?;
+    println!("Assigned issue {} to {}", id, task);
+    Ok(())
+}
+
+fn cmd_issue_show(ctx: &CommandContext, id: &str) -> Result<()> {
+    let path = issue_path(&ctx.agent_root, id);
+    if !path.exists() {
+        bail!("Issue '{}' not found", id);
+    }
+    let content = read_text(&path)?;
+    println!("{}", content);
+    Ok(())
 }
 
 pub fn cmd_finish(
@@ -640,6 +1091,12 @@ pub fn cmd_finish(
     }
     save_session(&session_path, &session)?;
 
+    let has_open_issues = if !task.is_empty() {
+        task_has_open_issues(&ctx.agent_root, &task)?
+    } else {
+        false
+    };
+
     if !task.is_empty() {
         let task_path = task_state_path(&ctx.agent_root, &task);
         if !task_path.exists() {
@@ -649,7 +1106,7 @@ pub fn cmd_finish(
             task_state.stage = resolved_next.clone();
             task_state.updated_at = now_iso();
             task_state.last_session = Some(session_id.clone());
-            task_state.status = determine_next_status(task_state.status.clone(), &stage, next_stage.is_some(), &resolved_next);
+            task_state.status = determine_next_status(&stage, next_stage.is_some(), &resolved_next, has_open_issues);
             Ok(())
         })?;
     }
@@ -685,6 +1142,53 @@ pub fn cmd_spec_review(ctx: &CommandContext, task: &str) -> Result<()> {
         bail!("Task '{}' not found", task);
     }
     run_stage(ctx, Some(task), "spec-review", None)?;
+    Ok(())
+}
+
+pub fn cmd_set_stage(
+    ctx: &CommandContext,
+    task: &str,
+    stage: &str,
+    status: Option<String>,
+) -> Result<()> {
+    validate_task_name(task)?;
+    if !ctx.agent.stages().contains(&stage) {
+        bail!("Unknown stage: {}", stage);
+    }
+    let task_path = task_state_path(&ctx.agent_root, task);
+    if !task_path.exists() {
+        bail!("Task '{}' not found", task);
+    }
+
+    let resolved_status = if let Some(status) = status {
+        TaskStatus::from_str(&status)?
+    } else {
+        let has_open_issues = if ctx.agent == AgentKind::Code {
+            task_has_open_issues(&ctx.agent_root, task)?
+        } else {
+            false
+        };
+        if has_open_issues {
+            TaskStatus::Issues
+        } else if stage == "completed" {
+            TaskStatus::Completed
+        } else {
+            TaskStatus::Pending
+        }
+    };
+
+    let status_for_update = resolved_status.clone();
+    update_task(&task_path, |task_state| {
+        task_state.stage = stage.to_string();
+        task_state.status = status_for_update;
+        task_state.updated_at = now_iso();
+        Ok(())
+    })?;
+
+    println!(
+        "Set '{}' to stage '{}' (status: {})",
+        task, stage, resolved_status
+    );
     Ok(())
 }
 
@@ -995,21 +1499,160 @@ fn find_unique_task(agent_root: &Path, stage: &str) -> Result<Option<String>> {
 }
 
 fn determine_next_status(
-    current: TaskStatus,
     stage: &str,
     override_next: bool,
     next_stage: &str,
+    has_open_issues: bool,
 ) -> TaskStatus {
+    if has_open_issues {
+        return TaskStatus::Issues;
+    }
     if next_stage == "completed" {
         return TaskStatus::Completed;
-    }
-    if current == TaskStatus::Issues {
-        return TaskStatus::Issues;
     }
     if stage == "review" && override_next {
         return TaskStatus::Issues;
     }
     TaskStatus::Pending
+}
+
+fn ensure_code_agent(ctx: &CommandContext) -> Result<()> {
+    if ctx.agent != AgentKind::Code {
+        bail!("Issue tracking is only supported for the code agent");
+    }
+    Ok(())
+}
+
+fn parse_status_filter(value: Option<&str>) -> Result<IssueStatusFilter> {
+    let value = value.unwrap_or("open");
+    match value.trim().to_lowercase().as_str() {
+        "open" => Ok(IssueStatusFilter::Open),
+        "resolved" => Ok(IssueStatusFilter::Resolved),
+        "all" => Ok(IssueStatusFilter::All),
+        other => bail!("Invalid status filter: {}", other),
+    }
+}
+
+fn parse_priority(value: Option<&str>) -> Result<Option<IssuePriority>> {
+    match value {
+        Some(value) => Ok(Some(IssuePriority::from_str(value)?)),
+        None => Ok(None),
+    }
+}
+
+fn parse_issue_type(value: Option<&str>) -> Result<Option<IssueType>> {
+    match value {
+        Some(value) => Ok(Some(IssueType::from_str(value)?)),
+        None => Ok(None),
+    }
+}
+
+fn parse_issue_source(value: Option<&str>) -> Result<Option<IssueSource>> {
+    match value {
+        Some(value) => Ok(Some(IssueSource::from_str(value)?)),
+        None => Ok(None),
+    }
+}
+
+fn issue_default_stage(agent: AgentKind, issue_type: &IssueType) -> Option<String> {
+    if agent != AgentKind::Code {
+        return None;
+    }
+    match issue_type {
+        IssueType::Spec => Some("spec".to_string()),
+        _ => Some("build".to_string()),
+    }
+}
+
+fn validate_issue_stage(agent: AgentKind, stage: &str) -> Result<()> {
+    if !agent.stages().contains(&stage) {
+        bail!("Unknown stage: {}", stage);
+    }
+    if stage == "completed" {
+        bail!("Issues cannot target the completed stage");
+    }
+    Ok(())
+}
+
+fn update_task_for_issue(
+    agent_root: &Path,
+    task: &str,
+    stage_override: Option<&str>,
+    default_stage: Option<&str>,
+) -> Result<()> {
+    let task_path = task_state_path(agent_root, task);
+    if !task_path.exists() {
+        bail!("Task '{}' not found", task);
+    }
+    update_task(&task_path, |task_state| {
+        if let Some(stage) = stage_override {
+            task_state.stage = stage.to_string();
+        } else if task_state.stage == "completed" {
+            if let Some(stage) = default_stage {
+                task_state.stage = stage.to_string();
+            }
+        }
+        task_state.status = TaskStatus::Issues;
+        task_state.updated_at = now_iso();
+        Ok(())
+    })?;
+    Ok(())
+}
+
+fn sync_task_status_for_issues(agent_root: &Path, task: &str) -> Result<()> {
+    let task_path = task_state_path(agent_root, task);
+    if !task_path.exists() {
+        bail!("Task '{}' not found", task);
+    }
+    let issues = list_issues(agent_root)?;
+    let has_open = issues.iter().any(|issue| {
+        issue.status == IssueStatus::Open && issue.task.as_deref() == Some(task)
+    });
+    update_task(&task_path, |task_state| {
+        if has_open {
+            task_state.status = TaskStatus::Issues;
+        } else if task_state.stage == "completed" {
+            task_state.status = TaskStatus::Completed;
+        } else if task_state.status == TaskStatus::Issues {
+            task_state.status = TaskStatus::Pending;
+        }
+        task_state.updated_at = now_iso();
+        Ok(())
+    })?;
+    Ok(())
+}
+
+fn task_has_open_issues(agent_root: &Path, task: &str) -> Result<bool> {
+    let issues = list_issues(agent_root)?;
+    Ok(issues.iter().any(|issue| {
+        issue.status == IssueStatus::Open && issue.task.as_deref() == Some(task)
+    }))
+}
+
+fn next_eligible_task(agent: AgentKind, tasks: &[TaskState]) -> Option<TaskState> {
+    for stage in agent.stages() {
+        if *stage == "completed" {
+            continue;
+        }
+        let mut stage_tasks: Vec<TaskState> = tasks
+            .iter()
+            .filter(|t| {
+                !t.held
+                    && t.stage == *stage
+                    && matches!(
+                        t.status,
+                        TaskStatus::Pending | TaskStatus::Incomplete | TaskStatus::Issues
+                    )
+            })
+            .cloned()
+            .collect();
+        if stage_tasks.is_empty() {
+            continue;
+        }
+        stage_tasks.sort_by(|a, b| a.added_at.cmp(&b.added_at));
+        return stage_tasks.into_iter().next();
+    }
+    None
 }
 
 fn send_signal(child: &mut std::process::Child, signal: i32) {

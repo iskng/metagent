@@ -110,7 +110,13 @@ impl AgentKind {
     pub fn prompt_file_for_stage(&self, stage: &str, task: Option<&str>, repo_root: &Path) -> Option<PathBuf> {
         match self {
             Self::Code => match stage {
-                "spec" => Some(PathBuf::from("SPEC_PROMPT.md")),
+                "spec" => {
+                    if task.is_some() {
+                        Some(PathBuf::from("SPEC_EXISTING_TASK_PROMPT.md"))
+                    } else {
+                        Some(PathBuf::from("SPEC_PROMPT.md"))
+                    }
+                }
                 "spec-review" => Some(PathBuf::from("SPEC_REVIEW_PROMPT.md")),
                 "planning" => Some(PathBuf::from("PLANNING_PROMPT.md")),
                 "build" => task.map(|task| repo_root.join(".agents/code/tasks").join(task).join("PROMPT.md")),
@@ -158,9 +164,12 @@ impl AgentKind {
             Self::Code => match file_name {
                 "BOOTSTRAP_PROMPT.md" => Some(assets::CODE_BOOTSTRAP_PROMPT),
                 "SPEC_PROMPT.md" => Some(assets::CODE_SPEC_PROMPT),
+                "SPEC_EXISTING_TASK_PROMPT.md" => Some(assets::CODE_SPEC_EXISTING_PROMPT),
                 "PLANNING_PROMPT.md" => Some(assets::CODE_PLANNING_PROMPT),
                 "DEBUG_PROMPT.md" => Some(assets::CODE_DEBUG_PROMPT),
                 "SUBMIT_ISSUE_PROMPT.md" => Some(assets::CODE_SUBMIT_ISSUE_PROMPT),
+                "SUBMIT_TASK_PROMPT.md" => Some(assets::CODE_SUBMIT_TASK_PROMPT),
+                "SUBMIT_HOLD_TASK_PROMPT.md" => Some(assets::CODE_SUBMIT_HOLD_TASK_PROMPT),
                 "RECOVERY_PROMPT.md" => Some(assets::CODE_RECOVERY_PROMPT),
                 "REFRESH_PROMPT.md" => Some(assets::CODE_REFRESH_PROMPT),
                 "REVIEW_PROMPT.md" => Some(assets::CODE_REVIEW_PROMPT),
@@ -182,9 +191,12 @@ impl AgentKind {
             Self::Code => vec![
                 ("BOOTSTRAP_PROMPT.md", assets::CODE_BOOTSTRAP_PROMPT),
                 ("SPEC_PROMPT.md", assets::CODE_SPEC_PROMPT),
+                ("SPEC_EXISTING_TASK_PROMPT.md", assets::CODE_SPEC_EXISTING_PROMPT),
                 ("PLANNING_PROMPT.md", assets::CODE_PLANNING_PROMPT),
                 ("DEBUG_PROMPT.md", assets::CODE_DEBUG_PROMPT),
                 ("SUBMIT_ISSUE_PROMPT.md", assets::CODE_SUBMIT_ISSUE_PROMPT),
+                ("SUBMIT_TASK_PROMPT.md", assets::CODE_SUBMIT_TASK_PROMPT),
+                ("SUBMIT_HOLD_TASK_PROMPT.md", assets::CODE_SUBMIT_HOLD_TASK_PROMPT),
                 ("RECOVERY_PROMPT.md", assets::CODE_RECOVERY_PROMPT),
                 ("REFRESH_PROMPT.md", assets::CODE_REFRESH_PROMPT),
                 ("REVIEW_PROMPT.md", assets::CODE_REVIEW_PROMPT),
@@ -197,6 +209,25 @@ impl AgentKind {
                 ("PROMPT.md", assets::WRITER_PROMPT),
                 ("EDITOR_PROMPT.md", assets::WRITER_EDITOR_PROMPT),
                 ("agent.sh", assets::WRITER_AGENT_SH),
+            ],
+        }
+    }
+
+    pub fn slash_commands(&self) -> Vec<(&'static str, &'static str)> {
+        match self {
+            Self::Code => vec![
+                ("BOOTSTRAP_PROMPT.md", "bootstrap"),
+                ("SPEC_PROMPT.md", "spec"),
+                ("PLANNING_PROMPT.md", "planner"),
+                ("DEBUG_PROMPT.md", "debug"),
+                ("SUBMIT_ISSUE_PROMPT.md", "submit-issue"),
+                ("SUBMIT_TASK_PROMPT.md", "submit-task"),
+                ("SUBMIT_HOLD_TASK_PROMPT.md", "submit-hold-task"),
+            ],
+            Self::Writer => vec![
+                ("INIT_PROMPT.md", "writer-init"),
+                ("PLANNING_PROMPT.md", "writer-plan"),
+                ("PROMPT.md", "writer"),
             ],
         }
     }
@@ -216,6 +247,18 @@ impl AgentKind {
         match self {
             Self::Code => {
                 std::fs::create_dir_all(task_dir.join("spec"))?;
+                let spec_dir = task_dir.join("spec");
+                for (file, title) in [
+                    ("overview.md", "Overview"),
+                    ("types.md", "Types"),
+                    ("modules.md", "Modules"),
+                    ("errors.md", "Errors"),
+                ] {
+                    let path = spec_dir.join(file);
+                    if !path.exists() {
+                        write_text(&path, &format!("# {title}\n\n"))?;
+                    }
+                }
                 let plan = format!(
                     "# Implementation Plan - {task}\n\n> Generated: {}\n> Status: PENDING_SPEC\n\n- [ ] (tasks will be added during planning phase)\n",
                     today_date()
@@ -258,7 +301,7 @@ fn code_build_prompt(task: &str) -> String {
 
 4. ALWAYS KEEP @plan.md up to date with your learnings about the task. After wrapping up/finishing your turn append a short session-x summary with what was accomplished and any relevant notes.
 
-5. When you learn something new about how to run the build/tests make sure you update @.agents/code/AGENT.md but keep it brief.
+5. When you learn something new about how to run the build/tests make sure you update @.agents/code/AGENTS.md but keep it brief.
 
 999999. Important: We want single sources of truth, no migrations/adapters. If tests unrelated to your work fail then it's your job to resolve these tests as part of the increment of change.
 99999999. Important: When authoring tests capture the WHY - document importance in docstrings.
@@ -266,7 +309,7 @@ fn code_build_prompt(task: &str) -> String {
 9999999999. You may add extra logging if required to be able to debug the issues.
 99999999999. If you find inconsistencies in the specs/* then use the oracle (think extra hard) and then update the specs.
 999999999999. FULL IMPLEMENTATIONS ONLY. NO PLACEHOLDERS. NO STUBS. NO TODO COMMENTS. DO NOT IMPLEMENT PLACEHOLDER OR SIMPLE IMPLEMENTATIONS. WE WANT FULL IMPLEMENTATIONS. DO IT OR I WILL YELL AT YOU
-9999999999999. SUPER IMPORTANT DO NOT IGNORE. DO NOT PLACE STATUS REPORT UPDATES INTO @.agents/code/AGENT.md
+9999999999999. SUPER IMPORTANT DO NOT IGNORE. DO NOT PLACE STATUS REPORT UPDATES INTO @.agents/code/AGENTS.md
 99999999999999. **WHEN ITEM DONE:** run `cd "{{repo}}" && METAGENT_SESSION="{{session}}" METAGENT_TASK="{{task}}" metagent --agent code finish --next build` to signal iteration complete (more items remain).
 999999999999999. **WHEN ALL ASPECTS OF THE PLAN.md ARE COMPLETE:** run a full `cargo build` to verify everything compiles, then run `cd "{{repo}}" && METAGENT_SESSION="{{session}}" METAGENT_TASK="{{task}}" metagent --agent code finish` to signal task complete (all items done).
 {{issues_mode}}

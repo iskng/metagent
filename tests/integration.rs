@@ -216,6 +216,10 @@ fn install_and_uninstall() {
     assert!(home.join(".codex/prompts/spec.md").exists());
     assert!(home.join(".claude/commands/submit-issue.md").exists());
     assert!(home.join(".codex/prompts/submit-issue.md").exists());
+    assert!(home.join(".claude/commands/submit-task.md").exists());
+    assert!(home.join(".codex/prompts/submit-task.md").exists());
+    assert!(home.join(".claude/commands/submit-hold-task.md").exists());
+    assert!(home.join(".codex/prompts/submit-hold-task.md").exists());
 
     env.run(&["uninstall"]);
 
@@ -261,6 +265,31 @@ fn init_task_queue_dequeue() {
 
     env.run(&["dequeue", "my-task"]);
     assert!(!agent_root.join("tasks/my-task").exists());
+}
+
+#[test]
+fn set_stage_updates_task() {
+    let env = TestEnv::new();
+    env.install_stub_capture("claude");
+
+    env.run(&["init"]);
+    env.run(&["task", "stage-task"]);
+
+    env.run(&["set-stage", "stage-task", "planning"]);
+
+    let agent_root = env.repo.join(".agents/code");
+    let task_state = fs::read_to_string(agent_root.join("tasks/stage-task/task.json"))
+        .expect("task.json");
+    let task_json: Value = serde_json::from_str(&task_state).expect("parse task.json");
+    assert_eq!(task_json["stage"], "planning");
+    assert_eq!(task_json["status"], "pending");
+
+    env.run(&["set-stage", "stage-task", "review", "--status", "running"]);
+    let task_state = fs::read_to_string(agent_root.join("tasks/stage-task/task.json"))
+        .expect("task.json");
+    let task_json: Value = serde_json::from_str(&task_state).expect("parse task.json");
+    assert_eq!(task_json["stage"], "review");
+    assert_eq!(task_json["status"], "running");
 }
 
 #[test]
@@ -486,4 +515,88 @@ fn debug_includes_bug_context() {
     let prompt = fs::read_to_string(&prompt_file).expect("prompt content");
     assert!(prompt.contains("Bug Report & Logs"));
     assert!(prompt.contains("login fails 500"));
+}
+
+#[test]
+fn issues_add_list_resolve() {
+    let env = TestEnv::new();
+    env.install_stub_capture("claude");
+
+    env.run(&["init"]);
+    env.run(&["task", "issue-task"]);
+
+    let output = env.output(&[
+        "issue",
+        "add",
+        "--title",
+        "Login fails",
+        "--task",
+        "issue-task",
+        "--priority",
+        "P1",
+        "--type",
+        "build",
+        "--source",
+        "manual",
+        "--body",
+        "Repro steps here",
+    ]);
+    assert!(output.contains("Created issue"));
+
+    let issues_dir = env.repo.join(".agents/code/issues");
+    let mut entries: Vec<PathBuf> = fs::read_dir(&issues_dir)
+        .expect("issues dir")
+        .flatten()
+        .map(|entry| entry.path())
+        .filter(|path| path.extension().and_then(|ext| ext.to_str()) == Some("md"))
+        .collect();
+    assert_eq!(entries.len(), 1);
+    let issue_path = entries.pop().expect("issue path");
+    let issue_id = issue_path
+        .file_stem()
+        .expect("issue stem")
+        .to_string_lossy()
+        .to_string();
+
+    let list_output = env.output(&["issues", "--task", "issue-task"]);
+    assert!(list_output.contains("Login fails"));
+
+    let task_state = fs::read_to_string(env.repo.join(".agents/code/tasks/issue-task/task.json"))
+        .expect("task.json");
+    let task_json: Value = serde_json::from_str(&task_state).expect("parse task.json");
+    assert_eq!(task_json["status"], "issues");
+
+    env.run(&["issue", "resolve", &issue_id, "--resolution", "fixed"]);
+
+    let issue_content = fs::read_to_string(&issue_path).expect("issue content");
+    assert!(issue_content.contains("status: resolved"));
+
+    let task_state = fs::read_to_string(env.repo.join(".agents/code/tasks/issue-task/task.json"))
+        .expect("task.json");
+    let task_json: Value = serde_json::from_str(&task_state).expect("parse task.json");
+    assert_eq!(task_json["status"], "pending");
+}
+
+#[test]
+fn run_held_task_uses_existing_spec_prompt() {
+    let env = TestEnv::new();
+    env.install_stub_capture("codex");
+
+    env.run(&["init"]);
+    env.run(&["task", "held-task", "--hold"]);
+
+    let prompt_file = env.home.path().join("spec_existing_prompt.txt");
+    let status = env
+        .command()
+        .args(["run", "held-task"])
+        .env("METAGENT_PROMPT_FILE", &prompt_file)
+        .status()
+        .expect("run held task");
+    assert!(status.success());
+
+    let prompt = fs::read_to_string(&prompt_file).expect("prompt content");
+    assert!(
+        prompt.contains("Task already exists: held-task"),
+        "expected existing-task spec prompt"
+    );
 }
