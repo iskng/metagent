@@ -9,9 +9,9 @@
   5b. Study @.agents/code/AGENTS.md - Project build commands and structure
   5c. Study @.agents/code/TECHNICAL_STANDARDS.md - Coding patterns to follow
 6. Now review the spec files and see if we need to add any context or refine them based on what you learned.
+7. Advance the task to the next stage:
+   `cd "{repo}" && metagent --agent code set-stage {taskname} planning`
 
 999. Keep task name short and specific.
 9999. Use snake-case for task names.
-99999. DO NOT USE any metagent skill for this. 
-999999. DO NOT call `metagent finish` in this flow.
-9999999. Ensure the user explicitly confirms whether the task should be held/backlog.
+99999. DO NOT USE any metagent skill for this.

@@ -1146,6 +1146,13 @@ pub fn cmd_finish(
         false
     };
 
+    // Don't allow moving to completed if there are open issues
+    let resolved_next = if has_open_issues && resolved_next == "completed" {
+        "build".to_string()
+    } else {
+        resolved_next
+    };
+
     if !task.is_empty() {
         let task_path = task_state_path(&ctx.agent_root, &task);
         if !task_path.exists() {
@@ -1679,10 +1686,7 @@ fn task_has_open_issues(agent_root: &Path, task: &str) -> Result<bool> {
 }
 
 fn next_eligible_task(agent: AgentKind, tasks: &[TaskState]) -> Option<TaskState> {
-    for stage in agent.stages() {
-        if *stage == "completed" {
-            continue;
-        }
+    for stage in agent.queue_stages() {
         let mut stage_tasks: Vec<TaskState> = tasks
             .iter()
             .filter(|t| {
@@ -1700,6 +1704,20 @@ fn next_eligible_task(agent: AgentKind, tasks: &[TaskState]) -> Option<TaskState
         }
         stage_tasks.sort_by(|a, b| a.added_at.cmp(&b.added_at));
         return stage_tasks.into_iter().next();
+    }
+    // Safety net: pick up completed tasks that still have Issues status
+    let mut issues_tasks: Vec<TaskState> = tasks
+        .iter()
+        .filter(|t| !t.held && t.stage == "completed" && t.status == TaskStatus::Issues)
+        .cloned()
+        .collect();
+    if !issues_tasks.is_empty() {
+        issues_tasks.sort_by(|a, b| a.added_at.cmp(&b.added_at));
+        // Override stage to build since completed has no prompt
+        return issues_tasks.into_iter().next().map(|mut t| {
+            t.stage = "build".to_string();
+            t
+        });
     }
     None
 }

@@ -15,6 +15,8 @@
    `metagent issue add --title "<short title>" --task "{task}" --priority P2 --type build --source review --stdin-body`
    Include the detailed problem, file:line, and suggested fix in the body.
 
+6. Think really hard about the spec and research the code to make sure all aspects of the spec ar fully implemented. If you find any aspect of the spec that is not fully implemented you must document what is incomplete in plan.md and then add the steps required to complete the spec. 
+
 Format:
 # Code Review - {task}
 > Reviewed: {date}
@@ -46,7 +48,7 @@ Optional improvements (not blocking).
 
 7. Signal next stage:
 - Spec issues exist (any open): `cd "{repo}" && METAGENT_TASK="{task}" metagent --agent code finish review --session "{session}" --next spec`
-- Only build issues (no spec issues): `cd "{repo}" && METAGENT_TASK="{task}" metagent --agent code finish review --session "{session}" --next build`
+- Only build issues (no spec issues) or spec is not fully implemented: `cd "{repo}" && METAGENT_TASK="{task}" metagent --agent code finish review --session "{session}" --next build`
 - Pass (no issues): `cd "{repo}" && METAGENT_TASK="{task}" metagent --agent code finish review --session "{session}"`
 
 999. Spec issues = requirements/architecture → back to spec.
@@ -56,5 +58,7 @@ Optional improvements (not blocking).
 9999999. ONLY flag bugs introduced in this task's commits - pre-existing bugs should NOT be flagged.
 99999999. NO SPECULATION - other affected code must be provably identified, not guessed.
 999999999. Don't rely on unstated assumptions about codebase or author's intent.
+9999999999. ALL ASPECTS of the spec must be fully implemented unless noted why they cannot be. 
+99999999999. If the code does not fully reflect the complete implementationn of the spec you must note this in plan.md
 {issues_mode}
 {parallelism_mode}

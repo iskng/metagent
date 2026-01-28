@@ -49,6 +49,14 @@ impl AgentKind {
         }
     }
 
+    /// Stages that run-queue will process (build/review only, not planning/specs)
+    pub fn queue_stages(&self) -> &'static [&'static str] {
+        match self {
+            Self::Code => &["build", "review"],
+            Self::Writer => &["write", "edit"],
+        }
+    }
+
     pub fn initial_stage(&self) -> &'static str {
         match self {
             Self::Code => "spec",
