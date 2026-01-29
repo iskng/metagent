@@ -13,14 +13,15 @@ use std::time::{Duration, Instant};
 use crate::agent::AgentKind;
 use crate::issues::{
     append_resolution, count_open_issues, filter_issues, issue_path, list_issues, new_issue,
-    sort_issues, IssueFilter, IssuePriority, IssueSource, IssueStatus, IssueStatusFilter,
-    IssueType,
+    save_issue, sort_issues, IssueFilter, IssuePriority, IssueSource, IssueStatus,
+    IssueStatusFilter, IssueType,
 };
 use crate::model::Model;
 use crate::prompt::{issues_text, parallelism_text, render_prompt, PromptContext};
 use crate::state::{
-    claim_task, create_session, create_task_state, list_tasks, load_session, load_task, save_session,
-    update_session, update_task, SessionState, SessionStatus, TaskState, TaskStatus,
+    claim_task, create_session, create_task_state, has_active_claim, has_active_session, list_tasks,
+    load_session, load_task, save_session, update_session, update_task, SessionState, SessionStatus,
+    TaskState, TaskStatus,
 };
 use crate::util::{
     confirm, get_agent_root, home_dir, now_iso, read_text, task_dir, task_state_path,
@@ -53,6 +54,7 @@ fn link_prompt(target: &Path, link: &Path) -> Result<()> {
 pub struct ModelChoice {
     pub model: Model,
     pub explicit: bool,
+    pub force_model: bool,
 }
 
 #[derive(Subcommand)]
@@ -524,7 +526,15 @@ pub fn cmd_queue(ctx: &CommandContext, task: Option<&str>) -> Result<()> {
         if stage_tasks.is_empty() {
             continue;
         }
-        stage_tasks.sort_by(|a, b| a.added_at.cmp(&b.added_at));
+        if *stage == "build" {
+            stage_tasks.sort_by(|a, b| {
+                let ar = a.queue_rank.unwrap_or(i64::MAX);
+                let br = b.queue_rank.unwrap_or(i64::MAX);
+                ar.cmp(&br).then_with(|| a.added_at.cmp(&b.added_at))
+            });
+        } else {
+            stage_tasks.sort_by(|a, b| a.added_at.cmp(&b.added_at));
+        }
         println!("{}:", ctx.agent.stage_label(stage));
         for task in stage_tasks {
             let issue_count = issue_counts.per_task.get(&task.task).copied().unwrap_or(0);
@@ -633,16 +643,15 @@ pub fn cmd_issues(
         IssueStatusFilter::All => "Issues",
     };
     println!("{}:", heading);
-    for issue in issues {
-        let task = issue.task.as_deref().unwrap_or("-");
-        let mut line = format!(
-            "  [{}] {} {}  task: {}  type: {}  source: {}",
-            issue.priority, issue.id, issue.title, task, issue.issue_type, issue.source
-        );
+    for (index, issue) in issues.iter().enumerate() {
+        let task_label = issue.task.as_deref().unwrap_or("unassigned");
+        println!("  [{}] {}: {}", issue.priority, task_label, issue.title);
         if status_filter == IssueStatusFilter::All {
-            line.push_str(&format!("  status: {}", issue.status));
+            println!("      status: {}", issue.status);
         }
-        println!("{}", line);
+        if index + 1 < issues.len() {
+            println!();
+        }
     }
     Ok(())
 }
@@ -675,15 +684,110 @@ pub fn cmd_issue(ctx: &CommandContext, command: IssueCommands) -> Result<()> {
     }
 }
 
-pub fn cmd_dequeue(ctx: &CommandContext, task: &str) -> Result<()> {
+pub fn cmd_delete(ctx: &CommandContext, task: &str, force: bool) -> Result<()> {
     validate_task_name(task)?;
     let dir = task_dir(&ctx.agent_root, task);
     if !dir.exists() {
         println!("Task '{}' not found", task);
         return Ok(());
     }
+
+    let issues = list_issues(&ctx.agent_root)?;
+    let open_issue_ids: Vec<_> = issues
+        .iter()
+        .filter(|issue| {
+            issue.status == IssueStatus::Open && issue.task.as_deref() == Some(task)
+        })
+        .map(|issue| issue.id.clone())
+        .collect();
+
+    if !open_issue_ids.is_empty() && !force {
+        bail!(
+            "Task '{}' has open issues ({}). Re-run with --force to delete and unassign them.",
+            task,
+            open_issue_ids.len()
+        );
+    }
+
+    if force && !open_issue_ids.is_empty() {
+        for mut issue in issues {
+            if issue.status == IssueStatus::Open && issue.task.as_deref() == Some(task) {
+                issue.task = None;
+                issue.updated_at = now_iso();
+                let path = issue_path(&ctx.agent_root, &issue.id);
+                save_issue(&path, &issue)?;
+            }
+        }
+    }
+
     fs::remove_dir_all(&dir)?;
     println!("Removed '{}'", task);
+    Ok(())
+}
+
+pub fn cmd_reorder(ctx: &CommandContext, task: &str, position: usize) -> Result<()> {
+    validate_task_name(task)?;
+    if position == 0 {
+        bail!("Position must be 1 or greater");
+    }
+    let task_path = task_state_path(&ctx.agent_root, task);
+    if !task_path.exists() {
+        bail!("Task '{}' not found", task);
+    }
+    let task_state = load_task(&task_path)?;
+    if task_state.stage != "build" {
+        bail!("Reorder is only supported for build stage tasks");
+    }
+    if task_state.held {
+        bail!("Task '{}' is held. Activate it before reordering.", task);
+    }
+
+    let mut stage_tasks: Vec<TaskState> = list_tasks(&ctx.agent_root)
+        .into_iter()
+        .filter(|t| !t.held && t.stage == "build")
+        .collect();
+    if stage_tasks.is_empty() {
+        bail!("No build tasks to reorder");
+    }
+
+    stage_tasks.sort_by(|a, b| {
+        let ar = a.queue_rank.unwrap_or(i64::MAX);
+        let br = b.queue_rank.unwrap_or(i64::MAX);
+        ar.cmp(&br).then_with(|| a.added_at.cmp(&b.added_at))
+    });
+
+    let current_index = stage_tasks
+        .iter()
+        .position(|t| t.task == task)
+        .ok_or_else(|| anyhow::anyhow!("Task '{}' is not in the build queue", task))?;
+
+    let mut ordered = Vec::with_capacity(stage_tasks.len());
+    for (idx, item) in stage_tasks.into_iter().enumerate() {
+        if idx != current_index {
+            ordered.push(item);
+        }
+    }
+    let insert_index = std::cmp::min(position - 1, ordered.len());
+    ordered.insert(insert_index, task_state);
+
+    for (idx, item) in ordered.iter().enumerate() {
+        let new_rank = (idx + 1) as i64;
+        if item.queue_rank == Some(new_rank) {
+            continue;
+        }
+        let path = task_state_path(&ctx.agent_root, &item.task);
+        update_task(&path, |task_state| {
+            task_state.queue_rank = Some(new_rank);
+            task_state.updated_at = now_iso();
+            Ok(())
+        })?;
+    }
+
+    println!(
+        "Reordered '{}' to position {} in build queue.",
+        task,
+        insert_index + 1
+    );
     Ok(())
 }
 
@@ -833,15 +937,7 @@ pub fn cmd_run_queue(ctx: &CommandContext) -> Result<()> {
         println!("No tasks");
         return Ok(());
     }
-
-    for task in tasks.iter().filter(|t| t.status == TaskStatus::Running && t.stage != "completed") {
-        let task_path = task_state_path(&ctx.agent_root, &task.task);
-        update_task(&task_path, |task_state| {
-            task_state.status = TaskStatus::Incomplete;
-            task_state.updated_at = now_iso();
-            Ok(())
-        })?;
-    }
+    reconcile_running_tasks(&ctx.agent_root)?;
 
     loop {
         let tasks = list_tasks(&ctx.agent_root);
@@ -893,15 +989,7 @@ pub fn cmd_run_next(ctx: &CommandContext, task: Option<&str>) -> Result<()> {
         println!("No tasks");
         return Ok(());
     }
-
-    for task_state in tasks.iter().filter(|t| t.status == TaskStatus::Running && t.stage != "completed") {
-        let task_path = task_state_path(&ctx.agent_root, &task_state.task);
-        update_task(&task_path, |task_state| {
-            task_state.status = TaskStatus::Incomplete;
-            task_state.updated_at = now_iso();
-            Ok(())
-        })?;
-    }
+    reconcile_running_tasks(&ctx.agent_root)?;
 
     if let Some(task) = task {
         validate_task_name(task)?;
@@ -1096,6 +1184,11 @@ fn cmd_issue_assign(ctx: &CommandContext, id: &str, task: &str, stage: Option<St
     issue.task = Some(task.to_string());
     issue.updated_at = now_iso();
     crate::issues::save_issue(&path, &issue)?;
+
+    if issue.status == IssueStatus::Resolved {
+        println!("Assigned resolved issue {} to {}", id, task);
+        return Ok(());
+    }
 
     if let Some(stage) = stage.as_deref() {
         validate_issue_stage(ctx.agent, stage)?;
@@ -1543,16 +1636,32 @@ fn resolve_model(
     stage: &str,
     task_status: Option<&TaskStatus>,
 ) -> Model {
+    if task_status == Some(&TaskStatus::Issues) && !(choice.force_model && choice.explicit) {
+        return Model::Codex;
+    }
     if choice.explicit {
         return choice.model;
-    }
-    if task_status == Some(&TaskStatus::Issues) {
-        return Model::Codex;
     }
     if let Some(stage_model) = agent.model_for_stage(stage) {
         return stage_model;
     }
     choice.model
+}
+
+fn reconcile_running_tasks(agent_root: &Path) -> Result<()> {
+    let tasks = list_tasks(agent_root);
+    for task in tasks.iter().filter(|t| t.status == TaskStatus::Running && t.stage != "completed") {
+        if has_active_claim(agent_root, &task.task)? || has_active_session(agent_root, &task.task)? {
+            continue;
+        }
+        let task_path = task_state_path(agent_root, &task.task);
+        update_task(&task_path, |task_state| {
+            task_state.status = TaskStatus::Incomplete;
+            task_state.updated_at = now_iso();
+            Ok(())
+        })?;
+    }
+    Ok(())
 }
 
 fn load_stage_prompt(ctx: &CommandContext, stage: &str, task: Option<&str>) -> Result<String> {
@@ -1599,7 +1708,16 @@ fn find_unique_task(agent_root: &Path, stage: &str) -> Result<Option<String>> {
     let tasks = list_tasks(agent_root);
     let mut matches: Vec<TaskState> = tasks
         .into_iter()
-        .filter(|task| task.stage == stage && matches!(task.status, TaskStatus::Running | TaskStatus::Pending))
+        .filter(|task| {
+            task.stage == stage
+                && matches!(
+                    task.status,
+                    TaskStatus::Running
+                        | TaskStatus::Pending
+                        | TaskStatus::Incomplete
+                        | TaskStatus::Issues
+                )
+        })
         .collect();
     if matches.len() == 1 {
         return Ok(Some(matches.remove(0).task));
@@ -1755,7 +1873,15 @@ fn next_eligible_task(agent: AgentKind, tasks: &[TaskState]) -> Option<TaskState
         if stage_tasks.is_empty() {
             continue;
         }
-        stage_tasks.sort_by(|a, b| a.added_at.cmp(&b.added_at));
+        if *stage == "build" {
+            stage_tasks.sort_by(|a, b| {
+                let ar = a.queue_rank.unwrap_or(i64::MAX);
+                let br = b.queue_rank.unwrap_or(i64::MAX);
+                ar.cmp(&br).then_with(|| a.added_at.cmp(&b.added_at))
+            });
+        } else {
+            stage_tasks.sort_by(|a, b| a.added_at.cmp(&b.added_at));
+        }
         return stage_tasks.into_iter().next();
     }
     // Safety net: pick up completed tasks that still have Issues status

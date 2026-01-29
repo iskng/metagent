@@ -8,7 +8,7 @@
 
 2. After implementing functionality or resolving problems, run the tests for that unit of code that was improved. If functionality is missing then it's your job to add it as per the application specifications.
 
-3. When the tests pass update @plan.md, then add changed code and @plan.md with git add the relevant files you created/modified via bash then do git commit -m "feat({task}): [descriptive message]"
+3. When the tests pass update @plan.md. Only commit if there are actual code changes. If there are no code changes (e.g., only @plan.md/session notes updated), skip git add/commit for this loop. If you did change code, add the relevant files (and @plan.md if updated) then do git commit -m "feat({task}): [descriptive message; plan steps completed]". The commit message must include the specific plan step(s) completed (e.g., "feat({task}): add X (plan: 2,4)").
 
 4. ALWAYS KEEP @plan.md up to date with your learnings about the task. After wrapping up/finishing your turn append a short session-x summary with what was accomplished and any relevant notes.
 

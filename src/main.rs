@@ -15,7 +15,7 @@ mod util;
 
 use agent::AgentKind;
 use commands::{
-    cmd_debug, cmd_dequeue, cmd_finish, cmd_init, cmd_install, cmd_queue, cmd_run, cmd_run_queue,
+    cmd_debug, cmd_delete, cmd_finish, cmd_init, cmd_install, cmd_queue, cmd_run, cmd_run_queue,
     cmd_spec_review, cmd_start, cmd_task, cmd_review, cmd_uninstall, CommandContext, ModelChoice,
     IssueCommands, INTERRUPTED,
 };
@@ -32,6 +32,9 @@ struct Cli {
 
     #[arg(long)]
     model: Option<String>,
+
+    #[arg(long)]
+    force_model: bool,
 
     #[command(subcommand)]
     command: Option<Commands>,
@@ -64,7 +67,16 @@ enum Commands {
     RunNext { name: Option<String> },
     #[command(alias = "q")]
     Queue { task: Option<String> },
-    Dequeue { name: String },
+    #[command(name = "delete", alias = "dequeue")]
+    Delete {
+        name: String,
+        #[arg(long)]
+        force: bool,
+    },
+    Reorder {
+        name: String,
+        position: usize,
+    },
     #[command(name = "run-queue", alias = "rq")]
     RunQueue,
     Review { task: String, focus: Option<String> },
@@ -118,7 +130,7 @@ fn main() -> Result<()> {
         .unwrap_or_else(|| "code".to_string());
     let agent = AgentKind::from_str(&agent_value)?;
 
-    let model_choice = resolve_model_choice(cli.model)?;
+    let model_choice = resolve_model_choice(cli.model, cli.force_model)?;
 
     match cli.command.unwrap_or(Commands::Start) {
         Commands::Install => cmd_install(),
@@ -169,10 +181,15 @@ fn main() -> Result<()> {
             let ctx = CommandContext::new(agent, model_choice, repo_root)?;
             cmd_queue(&ctx, task.as_deref())
         }
-        Commands::Dequeue { name } => {
+        Commands::Delete { name, force } => {
             let repo_root = get_repo_root(None)?;
             let ctx = CommandContext::new(agent, model_choice, repo_root)?;
-            cmd_dequeue(&ctx, &name)
+            cmd_delete(&ctx, &name, force)
+        }
+        Commands::Reorder { name, position } => {
+            let repo_root = get_repo_root(None)?;
+            let ctx = CommandContext::new(agent, model_choice, repo_root)?;
+            commands::cmd_reorder(&ctx, &name, position)
         }
         Commands::RunQueue => {
             let repo_root = get_repo_root(None)?;
@@ -219,22 +236,31 @@ fn main() -> Result<()> {
     }
 }
 
-fn resolve_model_choice(flag: Option<String>) -> Result<ModelChoice> {
+fn resolve_model_choice(flag: Option<String>, force_model_flag: bool) -> Result<ModelChoice> {
     let env_model = env::var("METAGENT_MODEL").ok();
+    let env_force = env::var("METAGENT_FORCE_MODEL")
+        .ok()
+        .map(|value| matches!(value.trim().to_lowercase().as_str(), "1" | "true" | "yes"))
+        .unwrap_or(false);
+    let force_model = force_model_flag || env_force;
+
     if let Some(flag) = flag {
         return Ok(ModelChoice {
             model: Model::from_str(&flag)?,
             explicit: true,
+            force_model,
         });
     }
     if let Some(env_model) = env_model {
         return Ok(ModelChoice {
             model: Model::from_str(&env_model)?,
             explicit: true,
+            force_model,
         });
     }
     Ok(ModelChoice {
         model: Model::Claude,
         explicit: false,
+        force_model,
     })
 }

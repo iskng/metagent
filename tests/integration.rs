@@ -382,6 +382,8 @@ fn run_queue_completes_tasks_with_stale_claim() {
 
     env.run(&["task", "alpha"]);
     env.run(&["task", "beta"]);
+    env.run(&["set-stage", "alpha", "build"]);
+    env.run(&["set-stage", "beta", "build"]);
 
     let agent_root = env.repo.join(".agents/code");
     let stale_claim = agent_root.join("claims/alpha.lock");
@@ -518,6 +520,36 @@ fn debug_includes_bug_context() {
 }
 
 #[test]
+fn reorder_build_queue_position() {
+    let env = TestEnv::new();
+    env.install_stub_capture("claude");
+    env.install_stub_capture("codex");
+
+    env.run(&["init"]);
+    env.run(&["task", "alpha"]);
+    env.run(&["task", "beta"]);
+    env.run(&["task", "gamma"]);
+
+    env.run(&["set-stage", "alpha", "build"]);
+    env.run(&["set-stage", "beta", "build"]);
+    env.run(&["set-stage", "gamma", "build"]);
+
+    env.run(&["reorder", "beta", "1"]);
+
+    let prompt_file = env.home.path().join("reorder_prompt.txt");
+    let status = env
+        .command()
+        .args(["run-next"])
+        .env("METAGENT_PROMPT_FILE", &prompt_file)
+        .status()
+        .expect("run-next");
+    assert!(status.success());
+
+    let prompt = fs::read_to_string(&prompt_file).expect("prompt content");
+    assert!(prompt.contains("Task: beta"), "expected beta to run first");
+}
+
+#[test]
 fn issues_add_list_resolve() {
     let env = TestEnv::new();
     env.install_stub_capture("claude");
@@ -580,6 +612,7 @@ fn issues_add_list_resolve() {
 #[test]
 fn run_next_injects_issues_even_if_status_drifts() {
     let env = TestEnv::new();
+    env.install_stub_capture("claude");
     env.install_stub_capture("codex");
 
     env.run(&["init"]);
@@ -634,6 +667,7 @@ fn run_next_injects_issues_even_if_status_drifts() {
 #[test]
 fn run_held_task_uses_existing_spec_prompt() {
     let env = TestEnv::new();
+    env.install_stub_capture("claude");
     env.install_stub_capture("codex");
 
     env.run(&["init"]);

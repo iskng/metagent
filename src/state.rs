@@ -1,5 +1,4 @@
 use anyhow::{bail, Context, Result};
-use chrono::Utc;
 use fs2::FileExt;
 use owo_colors::OwoColorize;
 use serde::{Deserialize, Serialize};
@@ -79,6 +78,8 @@ pub struct TaskState {
     pub stage: String,
     pub status: TaskStatus,
     #[serde(default)]
+    pub queue_rank: Option<i64>,
+    #[serde(default)]
     pub held: bool,
     pub added_at: String,
     pub updated_at: String,
@@ -121,6 +122,7 @@ pub struct ClaimState {
 
 pub struct ClaimGuard {
     path: PathBuf,
+    file: std::fs::File,
 }
 
 impl ClaimGuard {
@@ -133,6 +135,7 @@ impl ClaimGuard {
 
 impl Drop for ClaimGuard {
     fn drop(&mut self) {
+        self.file.unlock().ok();
         let _ = fs::remove_file(&self.path);
     }
 }
@@ -302,6 +305,10 @@ pub fn resolve_session_id(agent_root: &Path, explicit: Option<String>) -> Result
         Err(_) => bail!("METAGENT_SESSION not set and no active session found"),
     };
 
+    let local_host = hostname::get()
+        .unwrap_or_default()
+        .to_string_lossy()
+        .to_string();
     let mut running = Vec::new();
     for entry in entries.flatten() {
         let path = entry.path().join("session.json");
@@ -310,6 +317,15 @@ pub fn resolve_session_id(agent_root: &Path, explicit: Option<String>) -> Result
         }
         if let Ok(session) = load_session(&path) {
             if session.status == SessionStatus::Running {
+                if session.host == local_host && !is_pid_alive(session.pid) {
+                    update_session(&path, |session_state| {
+                        session_state.status = SessionStatus::Failed;
+                        session_state.finished_at = Some(now_iso());
+                        Ok(())
+                    })
+                    .ok();
+                    continue;
+                }
                 running.push(session.session_id);
             }
         }
@@ -343,6 +359,7 @@ pub fn create_task_state(
         agent: agent.to_string(),
         stage: stage.to_string(),
         status: TaskStatus::Pending,
+        queue_rank: None,
         held,
         added_at: added_at.to_string(),
         updated_at: added_at.to_string(),
@@ -361,9 +378,15 @@ pub fn claim_task(agent_root: &Path, task: &str, ttl_seconds: u64, host: &str) -
         fs::create_dir_all(parent)
             .with_context(|| format!("Failed to create {}", parent.display()))?;
     }
+    let mut file = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .open(&path)
+        .with_context(|| format!("Failed to open claim {}", path.display()))?;
 
-    match OpenOptions::new().write(true).create_new(true).open(&path) {
-        Ok(mut file) => {
+    match file.try_lock_exclusive() {
+        Ok(()) => {
             let claim = ClaimState {
                 task: task.to_string(),
                 agent: agent_root
@@ -376,58 +399,72 @@ pub fn claim_task(agent_root: &Path, task: &str, ttl_seconds: u64, host: &str) -
                 ttl_seconds,
             };
             let data = serde_json::to_string_pretty(&claim)?;
+            file.set_len(0)?;
             file.write_all(data.as_bytes())?;
-            return Ok(Some(ClaimGuard { path }));
+            Ok(Some(ClaimGuard { path, file }))
         }
-        Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => {
-            // Check for stale claim
-        }
-        Err(err) => return Err(err.into()),
+        Err(err) if err.kind() == std::io::ErrorKind::WouldBlock => Ok(None),
+        Err(err) => Err(err.into()),
     }
+}
 
-    if let Ok(existing) = read_claim(&path) {
-        if is_claim_stale(&existing, host) {
-            fs::remove_file(&path).ok();
-            if let Ok(mut file) = OpenOptions::new().write(true).create_new(true).open(&path) {
-                let claim = ClaimState {
-                    task: task.to_string(),
-                    agent: existing.agent,
-                    pid: std::process::id(),
-                    host: host.to_string(),
-                    started_at: now_iso(),
-                    ttl_seconds,
-                };
-                let data = serde_json::to_string_pretty(&claim)?;
-                file.write_all(data.as_bytes())?;
-                return Ok(Some(ClaimGuard { path }));
+pub fn has_active_claim(agent_root: &Path, task: &str) -> Result<bool> {
+    let path = claim_path(agent_root, task);
+    if !path.exists() {
+        return Ok(false);
+    }
+    let file = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(&path)
+        .with_context(|| format!("Failed to open claim {}", path.display()))?;
+    match file.try_lock_exclusive() {
+        Ok(()) => {
+            file.unlock().ok();
+            Ok(false)
+        }
+        Err(err) if err.kind() == std::io::ErrorKind::WouldBlock => Ok(true),
+        Err(err) => Err(err.into()),
+    }
+}
+
+pub fn has_active_session(agent_root: &Path, task: &str) -> Result<bool> {
+    let sessions_dir = agent_root.join("sessions");
+    let entries = match fs::read_dir(&sessions_dir) {
+        Ok(entries) => entries,
+        Err(_) => return Ok(false),
+    };
+    let local_host = hostname::get()
+        .unwrap_or_default()
+        .to_string_lossy()
+        .to_string();
+    for entry in entries.flatten() {
+        let path = entry.path().join("session.json");
+        if !path.exists() {
+            continue;
+        }
+        if let Ok(session) = load_session(&path) {
+            if session.status != SessionStatus::Running {
+                continue;
             }
+            if session.task.as_deref() != Some(task) {
+                continue;
+            }
+            if session.host != local_host {
+                return Ok(true);
+            }
+            if is_pid_alive(session.pid) {
+                return Ok(true);
+            }
+            update_session(&path, |session_state| {
+                session_state.status = SessionStatus::Failed;
+                session_state.finished_at = Some(now_iso());
+                Ok(())
+            })
+            .ok();
         }
     }
-
-    Ok(None)
-}
-
-fn read_claim(path: &Path) -> Result<ClaimState> {
-    let data = fs::read_to_string(path)
-        .with_context(|| format!("Failed to read claim {}", path.display()))?;
-    let claim = serde_json::from_str(&data)
-        .with_context(|| format!("Failed to parse claim {}", path.display()))?;
-    Ok(claim)
-}
-
-fn is_claim_stale(claim: &ClaimState, host: &str) -> bool {
-    if let Ok(started_at) = chrono::DateTime::parse_from_rfc3339(&claim.started_at) {
-        let elapsed = Utc::now().signed_duration_since(started_at.with_timezone(&Utc));
-        if elapsed.num_seconds() as u64 > claim.ttl_seconds {
-            return true;
-        }
-    }
-
-    if claim.host == host {
-        return !is_pid_alive(claim.pid);
-    }
-
-    false
+    Ok(false)
 }
 
 fn is_pid_alive(pid: u32) -> bool {
