@@ -8,6 +8,7 @@ pub struct PromptContext<'a> {
     pub session: Option<&'a str>,
     pub issues_header: &'a str,
     pub issues_mode: &'a str,
+    pub review_finish_instructions: &'a str,
     pub parallelism_mode: &'a str,
     pub focus_section: &'a str,
 }
@@ -26,6 +27,7 @@ pub fn render_prompt(template: &str, context: &PromptContext<'_>) -> String {
     output = output.replace("{repo}", context.repo_root);
     output = output.replace("{issues_header}", context.issues_header);
     output = output.replace("{issues_mode}", context.issues_mode);
+    output = output.replace("{review_finish_instructions}", context.review_finish_instructions);
     output = output.replace("{parallelism_mode}", context.parallelism_mode);
     output = output.replace("{focus_section}", context.focus_section);
     output

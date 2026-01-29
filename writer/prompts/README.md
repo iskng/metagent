@@ -44,7 +44,8 @@ A structured, autonomous writing workflow for books, courses, and long-form cont
 
 ```bash
 # From metagent repo
-./metagent.sh install
+cargo run -- install
+# or: cargo build --release && ./target/release/metagent install
 ```
 
 ### 2. Initialize writer in your project

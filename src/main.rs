@@ -50,6 +50,8 @@ enum Commands {
         name: String,
         #[arg(long)]
         hold: bool,
+        #[arg(long)]
+        description: Option<String>,
     },
     Hold { name: String },
     Activate { name: String },
@@ -82,6 +84,8 @@ enum Commands {
     Review { task: String, focus: Option<String> },
     #[command(name = "spec-review")]
     SpecReview { task: String },
+    Research { task: String },
+    How { topic: Option<String> },
     #[command(name = "set-stage")]
     SetStage {
         name: String,
@@ -141,10 +145,10 @@ fn main() -> Result<()> {
             let ctx = CommandContext::new(agent, model_choice, repo_root)?;
             cmd_start(&ctx)
         }
-        Commands::Task { name, hold } => {
+        Commands::Task { name, hold, description } => {
             let repo_root = get_repo_root(None)?;
             let ctx = CommandContext::new(agent, model_choice, repo_root)?;
-            cmd_task(&ctx, &name, hold)
+            cmd_task(&ctx, &name, hold, description)
         }
         Commands::Hold { name } => {
             let repo_root = get_repo_root(None)?;
@@ -205,6 +209,16 @@ fn main() -> Result<()> {
             let repo_root = get_repo_root(None)?;
             let ctx = CommandContext::new(agent, model_choice, repo_root)?;
             cmd_spec_review(&ctx, &task)
+        }
+        Commands::Research { task } => {
+            let repo_root = get_repo_root(None)?;
+            let ctx = CommandContext::new(agent, model_choice, repo_root)?;
+            commands::cmd_research(&ctx, &task)
+        }
+        Commands::How { topic } => {
+            let repo_root = get_repo_root(None)?;
+            let ctx = CommandContext::new(agent, model_choice, repo_root)?;
+            commands::cmd_how(&ctx, topic.as_deref())
         }
         Commands::SetStage { name, stage, status } => {
             let repo_root = get_repo_root(None)?;

@@ -183,6 +183,9 @@ impl AgentKind {
                 "REFRESH_PROMPT.md" => Some(assets::CODE_REFRESH_PROMPT),
                 "REVIEW_PROMPT.md" => Some(assets::CODE_REVIEW_PROMPT),
                 "SPEC_REVIEW_PROMPT.md" => Some(assets::CODE_SPEC_REVIEW_PROMPT),
+                "RESEARCH_PROMPT.md" => Some(assets::CODE_RESEARCH_PROMPT),
+                "how/commit.md" => Some(assets::CODE_HOW_COMMIT),
+                "how/plan-update.md" => Some(assets::CODE_HOW_PLAN_UPDATE),
                 _ => None,
             },
             Self::Writer => match file_name {
@@ -211,15 +214,23 @@ impl AgentKind {
                 ("REFRESH_PROMPT.md", assets::CODE_REFRESH_PROMPT),
                 ("REVIEW_PROMPT.md", assets::CODE_REVIEW_PROMPT),
                 ("SPEC_REVIEW_PROMPT.md", assets::CODE_SPEC_REVIEW_PROMPT),
-                ("agent.sh", assets::CODE_AGENT_SH),
+                ("RESEARCH_PROMPT.md", assets::CODE_RESEARCH_PROMPT),
+                ("how/commit.md", assets::CODE_HOW_COMMIT),
+                ("how/plan-update.md", assets::CODE_HOW_PLAN_UPDATE),
             ],
             Self::Writer => vec![
                 ("INIT_PROMPT.md", assets::WRITER_INIT_PROMPT),
                 ("PLANNING_PROMPT.md", assets::WRITER_PLANNING_PROMPT),
                 ("PROMPT.md", assets::WRITER_PROMPT),
                 ("EDITOR_PROMPT.md", assets::WRITER_EDITOR_PROMPT),
-                ("agent.sh", assets::WRITER_AGENT_SH),
             ],
+        }
+    }
+
+    pub fn how_topics(&self) -> Vec<&'static str> {
+        match self {
+            Self::Code => vec!["commit", "plan-update"],
+            Self::Writer => Vec::new(),
         }
     }
 

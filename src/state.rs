@@ -81,6 +81,8 @@ pub struct TaskState {
     pub queue_rank: Option<i64>,
     #[serde(default)]
     pub held: bool,
+    #[serde(default)]
+    pub description: Option<String>,
     pub added_at: String,
     pub updated_at: String,
     pub last_session: Option<String>,
@@ -353,6 +355,7 @@ pub fn create_task_state(
     stage: &str,
     added_at: &str,
     held: bool,
+    description: Option<String>,
 ) -> Result<TaskState> {
     let task_state = TaskState {
         task: task.to_string(),
@@ -361,6 +364,7 @@ pub fn create_task_state(
         status: TaskStatus::Pending,
         queue_rank: None,
         held,
+        description,
         added_at: added_at.to_string(),
         updated_at: added_at.to_string(),
         last_session: None,

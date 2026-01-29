@@ -50,7 +50,8 @@ A structured, 3-phase autonomous coding workflow based on the Ralph Wiggum techn
 
 ```bash
 # From metagent repo
-./metagent.sh install
+cargo run -- install
+# or: cargo build --release && ./target/release/metagent install
 ```
 
 ### 2. Initialize code agent in your project

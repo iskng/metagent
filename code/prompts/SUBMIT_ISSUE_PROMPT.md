@@ -11,8 +11,9 @@ Do **not** debug, fix, or run tests.
 
 1. Create a new issue using the CLI.
 2. Keep it concise and factual; no speculation.
-3. Do not assign to a task unless explicitly instructed.
-4. If explicitly instructed to assign, either include `--task <taskname>` in the add command or run `metagent issue assign <issue-id> --task <taskname>` afterward.
+3. After creating the issue, scan spec file names under `@.agents/code/tasks/*/spec/` and identify the most relevant task/spec(s) by filename.
+4. Ask the user which task to assign the issue to (include your suggested match).
+5. Only assign after the user confirms the task. Use `metagent issue assign <issue-id> --task <taskname>`.
 
 ---
 

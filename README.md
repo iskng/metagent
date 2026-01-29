@@ -6,7 +6,8 @@ Centralized agent workflows for autonomous coding and writing.
 
 ```bash
 # First time setup
-./metagent.sh install
+cargo run -- install
+# or: cargo build --release && ./target/release/metagent install
 
 # Initialize code agent in a repo
 cd ~/projects/my-app
@@ -51,7 +52,7 @@ metagent install           # Setup globally (first time)
 metagent uninstall         # Remove metagent globally
 metagent init [path]       # Initialize agent in repo
 metagent start             # Start new task interactively
-metagent task <name>       # Create task (used by model)
+metagent task <name> [--description "<text>"]  # Create task (used by model)
 metagent task <name> --hold  # Create backlog task (not picked up by run-queue)
 metagent hold <name>       # Hold task (exclude from run-queue)
 metagent activate <name>   # Activate held task
@@ -66,6 +67,8 @@ metagent queue             # Show task queue
 metagent dequeue <name>    # Remove from queue
 metagent run-queue         # Process all queued tasks
 metagent set-stage <task> <stage> [--status <status>]  # Update task stage/status
+metagent research <task>   # Review spec/plan and research current code (no changes)
+metagent how [topic]       # Show system instructions (e.g., "commit")
 
 Options:
   --agent TYPE    Select agent (code, writer) [default: code]
@@ -178,9 +181,6 @@ Per-task files (PROMPT.md, editorial_plan.md) live in the repo since they contai
 
 ## Agent Plugin System
 
-Each agent is defined in its own directory with:
-- `agent.sh` - Agent-specific functions (stages, prompts, task creation)
-- `prompts/` - Prompt files
-- `templates/` - Files copied to project on init
-
-To add a new agent type, create a new directory with these files.
+Agents are built into the Rust CLI.
+- `code/` and `writer/` contain prompts and templates embedded at build time.
+- Installed prompts in `~/.metagent/<agent>/` override embedded defaults.

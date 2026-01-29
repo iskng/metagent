@@ -112,3 +112,61 @@ pub fn session_state_path(agent_root: &Path, session_id: &str) -> PathBuf {
 pub fn claim_path(agent_root: &Path, task: &str) -> PathBuf {
     agent_root.join("claims").join(format!("{task}.lock"))
 }
+
+#[cfg(unix)]
+pub struct TerminalGuard {
+    original: Option<libc::termios>,
+}
+
+#[cfg(unix)]
+impl TerminalGuard {
+    pub fn capture() -> Self {
+        let fd = libc::STDIN_FILENO;
+        if unsafe { libc::isatty(fd) } != 1 {
+            return Self { original: None };
+        }
+        let mut termios = std::mem::MaybeUninit::<libc::termios>::uninit();
+        if unsafe { libc::tcgetattr(fd, termios.as_mut_ptr()) } != 0 {
+            return Self { original: None };
+        }
+        Self {
+            original: Some(unsafe { termios.assume_init() }),
+        }
+    }
+
+    fn restore_termios(&self) {
+        if let Some(original) = &self.original {
+            let _ = unsafe { libc::tcsetattr(libc::STDIN_FILENO, libc::TCSANOW, original) };
+        }
+    }
+
+    fn cleanup_sequences(&self) {
+        if unsafe { libc::isatty(libc::STDOUT_FILENO) } != 1 {
+            return;
+        }
+        // Best-effort cleanup for terminal modes left enabled by TUI clients.
+        // Avoid rmcup (\x1b[?1049l) because it can restore a prior screen and
+        // appear to delete recent terminal output.
+        const RESET: &[u8] = b"\x1b[?2004l\x1b[?1l\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1006l\x1b[?1015l\x1b[?25h\x1b[>0u\x1b>";
+        let _ = io::stdout().write_all(RESET);
+        let _ = io::stdout().flush();
+    }
+}
+
+#[cfg(unix)]
+impl Drop for TerminalGuard {
+    fn drop(&mut self) {
+        self.restore_termios();
+        self.cleanup_sequences();
+    }
+}
+
+#[cfg(not(unix))]
+pub struct TerminalGuard;
+
+#[cfg(not(unix))]
+impl TerminalGuard {
+    pub fn capture() -> Self {
+        TerminalGuard
+    }
+}

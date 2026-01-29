@@ -3,7 +3,7 @@
 ## Summary
 Replace the shell-based metagent orchestration with a single Rust CLI that owns all state, concurrency,
 and lifecycle logic. Preserve user-facing behavior, prompts, and agent workflows while eliminating
-shared-file races and multi-agent collisions. Shell scripts remain untouched and become legacy only.
+shared-file races and multi-agent collisions. The Rust CLI is the sole entry point.
 
 ## Goals
 - Keep the same workflows, prompts, and stage semantics for `code` and `writer` agents.
@@ -54,7 +54,7 @@ Implement agents as Rust structs that satisfy a shared trait.
 - `stage_label(stage) -> &str`
 
 Built-in agents:
-- `code` and `writer`, matching current `agent.sh` logic and templates.
+- `code` and `writer`, matching current Rust agent logic and templates.
 - Use installed prompts from `~/.metagent/<agent>/` when present, otherwise embedded defaults.
 
 ## State Model (No Shared Queue)

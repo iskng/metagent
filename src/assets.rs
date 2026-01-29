@@ -1,6 +1,3 @@
-pub const CODE_AGENT_SH: &str = include_str!("../code/agent.sh");
-pub const WRITER_AGENT_SH: &str = include_str!("../writer/agent.sh");
-
 pub const CODE_BOOTSTRAP_PROMPT: &str = include_str!("../code/prompts/BOOTSTRAP_PROMPT.md");
 pub const CODE_SPEC_PROMPT: &str = include_str!("../code/prompts/SPEC_PROMPT.md");
 pub const CODE_SPEC_EXISTING_PROMPT: &str =
@@ -15,6 +12,9 @@ pub const CODE_RECOVERY_PROMPT: &str = include_str!("../code/prompts/RECOVERY_PR
 pub const CODE_REFRESH_PROMPT: &str = include_str!("../code/prompts/REFRESH_PROMPT.md");
 pub const CODE_REVIEW_PROMPT: &str = include_str!("../code/prompts/REVIEW_PROMPT.md");
 pub const CODE_SPEC_REVIEW_PROMPT: &str = include_str!("../code/prompts/SPEC_REVIEW_PROMPT.md");
+pub const CODE_RESEARCH_PROMPT: &str = include_str!("../code/prompts/RESEARCH_PROMPT.md");
+pub const CODE_HOW_COMMIT: &str = include_str!("../code/how/commit.md");
+pub const CODE_HOW_PLAN_UPDATE: &str = include_str!("../code/how/plan-update.md");
 
 pub const WRITER_INIT_PROMPT: &str = include_str!("../writer/prompts/INIT_PROMPT.md");
 pub const WRITER_PLANNING_PROMPT: &str = include_str!("../writer/prompts/PLANNING_PROMPT.md");
