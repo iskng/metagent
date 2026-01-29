@@ -6,6 +6,7 @@ pub const CODE_SPEC_PROMPT: &str = include_str!("../code/prompts/SPEC_PROMPT.md"
 pub const CODE_SPEC_EXISTING_PROMPT: &str =
     include_str!("../code/prompts/SPEC_EXISTING_TASK_PROMPT.md");
 pub const CODE_PLANNING_PROMPT: &str = include_str!("../code/prompts/PLANNING_PROMPT.md");
+pub const CODE_BUILD_PROMPT: &str = include_str!("../code/prompts/BUILD_PROMPT.md");
 pub const CODE_DEBUG_PROMPT: &str = include_str!("../code/prompts/DEBUG_PROMPT.md");
 pub const CODE_SUBMIT_ISSUE_PROMPT: &str = include_str!("../code/prompts/SUBMIT_ISSUE_PROMPT.md");
 pub const CODE_SUBMIT_TASK_PROMPT: &str = include_str!("../code/prompts/SUBMIT_TASK_PROMPT.md");

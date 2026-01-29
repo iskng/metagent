@@ -578,6 +578,60 @@ fn issues_add_list_resolve() {
 }
 
 #[test]
+fn run_next_injects_issues_even_if_status_drifts() {
+    let env = TestEnv::new();
+    env.install_stub_capture("codex");
+
+    env.run(&["init"]);
+    env.run(&["task", "issue-task"]);
+
+    env.run(&[
+        "issue",
+        "add",
+        "--title",
+        "Login fails",
+        "--task",
+        "issue-task",
+        "--priority",
+        "P1",
+        "--type",
+        "build",
+        "--source",
+        "manual",
+        "--body",
+        "Repro steps here",
+    ]);
+
+    let task_path = env
+        .repo
+        .join(".agents/code/tasks/issue-task/task.json");
+    let mut task_json: Value =
+        serde_json::from_str(&fs::read_to_string(&task_path).expect("task.json"))
+            .expect("parse task.json");
+    task_json["status"] = Value::String("running".to_string());
+    fs::write(
+        &task_path,
+        serde_json::to_string_pretty(&task_json).expect("serialize task.json"),
+    )
+    .expect("write task.json");
+
+    let prompt_file = env.home.path().join("issues_prompt.txt");
+    let status = env
+        .command()
+        .args(["run-next", "issue-task"])
+        .env("METAGENT_PROMPT_FILE", &prompt_file)
+        .status()
+        .expect("run-next");
+    assert!(status.success());
+
+    let prompt = fs::read_to_string(&prompt_file).expect("prompt content");
+    assert!(
+        prompt.contains("REVIEW ISSUES"),
+        "expected issues prompt injection"
+    );
+}
+
+#[test]
 fn run_held_task_uses_existing_spec_prompt() {
     let env = TestEnv::new();
     env.install_stub_capture("codex");

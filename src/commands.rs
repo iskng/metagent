@@ -57,6 +57,20 @@ pub struct ModelChoice {
 
 #[derive(Subcommand)]
 pub enum IssueCommands {
+    List {
+        #[arg(long)]
+        task: Option<String>,
+        #[arg(long)]
+        unassigned: bool,
+        #[arg(long)]
+        status: Option<String>,
+        #[arg(long)]
+        priority: Option<String>,
+        #[arg(long = "type")]
+        issue_type: Option<String>,
+        #[arg(long)]
+        source: Option<String>,
+    },
     Add {
         #[arg(long)]
         title: String,
@@ -636,6 +650,14 @@ pub fn cmd_issues(
 pub fn cmd_issue(ctx: &CommandContext, command: IssueCommands) -> Result<()> {
     ensure_code_agent(ctx)?;
     match command {
+        IssueCommands::List {
+            task,
+            unassigned,
+            status,
+            priority,
+            issue_type,
+            source,
+        } => cmd_issues(ctx, task, unassigned, status, priority, issue_type, source),
         IssueCommands::Add {
             title,
             task,
@@ -675,7 +697,10 @@ pub fn cmd_start(ctx: &CommandContext) -> Result<()> {
             let task_path = task_state_path(&ctx.agent_root, task);
             if task_path.exists() {
                 update_task(&task_path, |task_state| {
-                    task_state.status = TaskStatus::Running;
+                    // Preserve Issues status so issue injection works in run_stage
+                    if task_state.status != TaskStatus::Issues {
+                        task_state.status = TaskStatus::Running;
+                    }
                     task_state.updated_at = now_iso();
                     Ok(())
                 })?;
@@ -770,7 +795,10 @@ pub fn cmd_run(ctx: &CommandContext, task: &str) -> Result<()> {
         }
 
         update_task(&task_path, |task_state| {
-            task_state.status = TaskStatus::Running;
+            // Preserve Issues status so issue injection works in run_stage
+            if task_state.status != TaskStatus::Issues {
+                task_state.status = TaskStatus::Running;
+            }
             task_state.updated_at = now_iso();
             Ok(())
         })?;
@@ -829,7 +857,10 @@ pub fn cmd_run_queue(ctx: &CommandContext) -> Result<()> {
 
         let task_path = task_state_path(&ctx.agent_root, &task_state.task);
         update_task(&task_path, |task_state| {
-            task_state.status = TaskStatus::Running;
+            // Preserve Issues status so issue injection works in run_stage
+            if task_state.status != TaskStatus::Issues {
+                task_state.status = TaskStatus::Running;
+            }
             task_state.updated_at = now_iso();
             Ok(())
         })?;
@@ -895,7 +926,10 @@ pub fn cmd_run_next(ctx: &CommandContext, task: Option<&str>) -> Result<()> {
             println!("Activating held task '{}'", task);
         }
         update_task(&task_path, |task_state| {
-            task_state.status = TaskStatus::Running;
+            // Preserve Issues status so issue injection works in run_stage
+            if task_state.status != TaskStatus::Issues {
+                task_state.status = TaskStatus::Running;
+            }
             task_state.updated_at = now_iso();
             Ok(())
         })?;
@@ -935,7 +969,10 @@ pub fn cmd_run_next(ctx: &CommandContext, task: Option<&str>) -> Result<()> {
 
     let task_path = task_state_path(&ctx.agent_root, &task_state.task);
     update_task(&task_path, |task_state| {
-        task_state.status = TaskStatus::Running;
+        // Preserve Issues status so issue injection works in run_stage
+        if task_state.status != TaskStatus::Issues {
+            task_state.status = TaskStatus::Running;
+        }
         task_state.updated_at = now_iso();
         Ok(())
     })?;
@@ -1320,7 +1357,23 @@ fn run_stage(
         let path = task_state_path(&ctx.agent_root, task_name);
         load_task(&path).ok().map(|task| task.status)
     });
-    let model = resolve_model(&ctx.model_choice, ctx.agent, stage, task_status.as_ref());
+    let has_open_issues = if let Some(task_name) = task {
+        match task_has_open_issues(&ctx.agent_root, task_name) {
+            Ok(has_open) => has_open,
+            Err(err) => {
+                eprintln!("Warning: failed to load issues: {}", err);
+                false
+            }
+        }
+    } else {
+        false
+    };
+    let effective_status = if has_open_issues {
+        Some(TaskStatus::Issues)
+    } else {
+        task_status.clone()
+    };
+    let model = resolve_model(&ctx.model_choice, ctx.agent, stage, effective_status.as_ref());
 
     let session_id = crate::state::new_session_id();
     let session = create_session(
@@ -1334,7 +1387,7 @@ fn run_stage(
     )?;
 
     let prompt_template = load_stage_prompt(ctx, stage, task)?;
-    let (issues_header, issues_mode) = issues_text(ctx.agent, task_status.as_ref(), task);
+    let (issues_header, issues_mode) = issues_text(ctx.agent, effective_status.as_ref(), task);
     let parallelism_mode = parallelism_text(model);
     let focus_section = focus_section.unwrap_or("");
     let repo_root_str = ctx.repo_root.display().to_string();
@@ -1505,7 +1558,7 @@ fn resolve_model(
 fn load_stage_prompt(ctx: &CommandContext, stage: &str, task: Option<&str>) -> Result<String> {
     let prompt_path = ctx
         .agent
-        .prompt_file_for_stage(stage, task, &ctx.repo_root)
+        .prompt_file_for_stage(stage, task)
         .ok_or_else(|| anyhow::anyhow!("No prompt for stage: {}", stage))?;
 
     if prompt_path.is_absolute() || prompt_path.components().count() > 1 {

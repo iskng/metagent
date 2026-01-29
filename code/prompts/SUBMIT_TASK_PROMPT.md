@@ -1,8 +1,6 @@
 1. Your task is to convert the current conversation into a full spec
-2. Pick a short, lowercase task slug (snake-case).
-3. Ask whether this should be held/backlog. Then create the task:
-   - Normal: `cd "{repo}" && metagent --agent code task {taskname}`
-   - Held: `cd "{repo}" && metagent --agent code task {taskname} --hold`
+2. Pick a short, lowercase task slug (kebab-case).
+3. Then create the task: `cd "{repo}" && metagent --agent code task {taskname}`
 4. Write all of the spec .md files in the tasks spec dir with as much detail as possible
 5. After writing all of the spec files study the following general files
   5a. Study @.agents/code/SPEC.md - Project specification (what this project is and does)
@@ -13,5 +11,5 @@
    `cd "{repo}" && metagent --agent code set-stage {taskname} planning`
 
 999. Keep task name short and specific.
-9999. Use snake-case for task names.
+9999. Use kebab-case for task names.
 99999. DO NOT USE any metagent skill for this.
