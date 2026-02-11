@@ -27,9 +27,9 @@ Required files:
 - `.agents/code/AGENTS.md`
 - `.agents/code/TECHNICAL_STANDARDS.md`
 - `.agents/code/SPEC.md`
-- `metagent` command available
+- `mung` command available
 
-If `.agents/code/` is missing, inform user to run `metagent init` first.
+If `.agents/code/` is missing, inform user to run `mung init` first.
 
 ---
 
@@ -525,10 +525,10 @@ If a command fails:
 
 ## PHASE 10: VERIFY SCRIPTS
 
-Verify metagent is available:
+Verify mung is available:
 
 ```bash
-metagent --help
+mung --help
 ```
 
 ---
@@ -565,8 +565,8 @@ Output summary:
 ║ Ready to use!                                                ║
 ║                                                              ║
 ║ Start a task:                                                ║
-║   metagent start                                             ║
-║   (or: metagent task my-feature && run /spec)                ║
+║   mung start                                             ║
+║   (or: mung task my-feature && run /spec)                ║
 ╚══════════════════════════════════════════════════════════════╝
 ```
 

@@ -24,7 +24,7 @@ A structured, 3-phase autonomous coding workflow based on the Ralph Wiggum techn
 │  │                       INCREMENTAL LOOP                                 │  │
 │  │                   {task}/PROMPT.md (per task)                          │  │
 │  │                                                                        │  │
-│  │   metagent run {task}                                                │  │
+│  │   mung run {task}                                                │  │
 │  │                                                                        │  │
 │  │   Each loop:                                                           │  │
 │  │   1. Load specs & plan                                                 │  │
@@ -46,27 +46,27 @@ A structured, 3-phase autonomous coding workflow based on the Ralph Wiggum techn
 
 ## Quick Start
 
-### 1. Install metagent (first time only)
+### 1. Install mung (first time only)
 
 ```bash
-# From metagent repo
+# From mung repo
 cargo run -- install
-# or: cargo build --release && ./target/release/metagent install
+# or: cargo build --release && ./target/release/mung install
 ```
 
 ### 2. Initialize code agent in your project
 
 ```bash
 cd ~/my-project
-metagent init
-# Or: metagent --agent code init
+mung init
+# Or: mung --agent code init
 ```
 
 ### 3. Bootstrap (configure for your project)
 
 ```bash
 # Run /bootstrap slash command in Claude, or:
-metagent start
+mung start
 # It will detect your language/framework and configure AGENTS.md
 ```
 
@@ -74,18 +74,18 @@ metagent start
 
 ```bash
 # Interactive mode (recommended)
-metagent start
+mung start
 # Conducts interview → creates task → specs → planning
 
 # Or manually:
-metagent task my-feature       # Create task
+mung task my-feature       # Create task
 # Use /spec slash command      # Write specs
-metagent finish spec --session "<session>"           # Advance to planning
+mung finish spec --session "<session>"           # Advance to planning
 # Use /planner slash command   # Create plan
-metagent finish planning --session "<session>"       # Advance to ready
+mung finish planning --session "<session>"       # Advance to ready
 
 # Build Loop
-metagent run my-feature
+mung run my-feature
 # Monitor output, Ctrl+C to intervene
 ```
 
@@ -99,10 +99,10 @@ metagent run my-feature
 
 ## Directory Structure
 
-### Global (after `metagent install`)
+### Global (after `mung install`)
 
 ```
-~/.metagent/code/
+~/.mung/code/
 ├── BOOTSTRAP_PROMPT.md      # Initial repo setup (/bootstrap)
 ├── SPEC_PROMPT.md           # Phase 1: Specifications (/spec)
 ├── PLANNING_PROMPT.md       # Phase 2: Planning (/planner)
@@ -111,7 +111,7 @@ metagent run my-feature
 └── REFRESH_PROMPT.md        # Regenerate stale plans
 ```
 
-### Per-project (after `metagent init`)
+### Per-project (after `mung init`)
 
 ```
 project/
@@ -376,7 +376,7 @@ Why: Coordinating non-deterministic agents creates exponential complexity.
 
 ## Files Included
 
-### Prompts (in ~/.metagent/code/)
+### Prompts (in ~/.mung/code/)
 
 | File | Slash Command | Purpose |
 |------|---------------|---------|

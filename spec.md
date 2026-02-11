@@ -1,7 +1,7 @@
 # Metagent Rust Rewrite Spec
 
 ## Summary
-Replace the shell-based metagent orchestration with a single Rust CLI that owns all state, concurrency,
+Replace the shell-based mung orchestration with a single Rust CLI that owns all state, concurrency,
 and lifecycle logic. Preserve user-facing behavior, prompts, and agent workflows while eliminating
 shared-file races and multi-agent collisions. The Rust CLI is the sole entry point.
 
@@ -12,7 +12,7 @@ shared-file races and multi-agent collisions. The Rust CLI is the sole entry poi
 - Remove the shared queue file and derive queue views from per-task state.
 - Keep prompts template-driven with `{repo}`, `{task}`, `{taskname}`, `{session}`, `{issues_mode}`,
   `{issues_header}`, `{parallelism_mode}`, `{focus_section}` replacements.
-- Remain compatible with existing `~/.metagent/` prompt installs and `.agents/` repo structure.
+- Remain compatible with existing `~/.mung/` prompt installs and `.agents/` repo structure.
 
 ## Non-goals
 - Changing prompt content, stage order, or task semantics.
@@ -33,7 +33,7 @@ shared-file races and multi-agent collisions. The Rust CLI is the sole entry poi
 
 ## Proposed Architecture (Rust-First)
 ### Rust CLI
-- A single `metagent` Rust binary provides all current commands.
+- A single `mung` Rust binary provides all current commands.
 - Shell scripts remain unchanged; the Rust binary becomes the primary entry point.
 - CLI uses `clap` for flags and subcommands; `anyhow` or `thiserror` for errors.
 
@@ -55,7 +55,7 @@ Implement agents as Rust structs that satisfy a shared trait.
 
 Built-in agents:
 - `code` and `writer`, matching current Rust agent logic and templates.
-- Use installed prompts from `~/.metagent/<agent>/` when present, otherwise embedded defaults.
+- Use installed prompts from `~/.mung/<agent>/` when present, otherwise embedded defaults.
 
 ## State Model (No Shared Queue)
 All state lives under `.agents/<agent>/`.
@@ -126,17 +126,17 @@ Non-replaced braces remain for the model to fill (dates, examples, etc).
 All commands mirror current behavior and flags.
 
 ### install
-- Write `metagent` binary into `~/.local/bin/metagent`.
-- Copy embedded prompts to `~/.metagent/<agent>/`.
+- Write `mung` binary into `~/.local/bin/mung`.
+- Copy embedded prompts to `~/.mung/<agent>/`.
 - Create slash command symlinks in:
   - `~/.claude/commands`
   - `~/.codex/prompts`
 - Warn if `~/.local/bin` is not in PATH.
 
 ### uninstall
-- Remove `~/.local/bin/metagent`.
-- Remove slash command symlinks pointing into `~/.metagent/`.
-- Remove `~/.metagent/`.
+- Remove `~/.local/bin/mung`.
+- Remove slash command symlinks pointing into `~/.mung/`.
+- Remove `~/.mung/`.
 
 ### init [path]
 - Ensure target repo exists; warn if no `.git`.
@@ -255,7 +255,7 @@ CLI tests:
 - `start` handoff semantics for `code`.
 
 ## Rollout Plan
-1. Implement Rust CLI and ship as `metagent` binary.
+1. Implement Rust CLI and ship as `mung` binary.
 2. Keep shell scripts untouched for reference/rollback.
 3. Add migration on first run.
 4. Validate with a dry-run on an existing repo; compare behavior with current shell.

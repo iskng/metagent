@@ -1,7 +1,7 @@
 0a. Study @.agents/code/tasks/{task}/spec/ - Task specifications (what was supposed to be built)
 0b. Study @.agents/code/tasks/{task}/plan.md - Implementation plan
 0c. Study @.agents/code/TECHNICAL_STANDARDS.md - Coding patterns to follow
-0d. Check existing issues for this task to avoid duplicates: `metagent issues --task {task}`
+0d. Check existing issues for this task to avoid duplicates: `mung issues --task {task}`
 {focus_section}
 
 1. Find all commits for this task: `git log --oneline --grep="{task}"`. For each commit, review the full diff with `git show <hash>`.
@@ -13,12 +13,12 @@
 4. Output ALL findings the author would definitely want to fix. Do not stop at the first qualifying finding - continue until every qualifying finding is listed. If no finding qualifies, output none.
 
 5. For each finding, create an issue using the CLI. Use `--type spec` for spec issues and `--type build` for build issues:
-   `metagent issue add --title "<short title>" --task "{task}" --priority P2 --type build --source review --stdin-body`
+   `mung issue add --title "<short title>" --task "{task}" --priority P2 --type build --source review --stdin-body`
    Include the detailed problem, file:line, and suggested fix in the body.
 
 6. Think really hard about the spec and research the code to make sure all aspects of the spec ar fully implemented. If you find any aspect of the spec that is not fully implemented you must document what is incomplete in plan.md and then add the steps required to complete the spec. 
 
-Format: run `metagent how add-issues` for the report template.
+Format: run `mung how add-issues` for the report template.
 
 6. Categorize each finding: Spec Issues = missing/unclear requirements, architectural decisions needed, scope questions, wrong approach. Build Issues = bugs, code quality, missing tests, security flaws, performance problems. When in doubt, it's a build issue (easier to fix).
 

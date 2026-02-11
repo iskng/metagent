@@ -2,7 +2,7 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-BIN="$REPO_ROOT/target/release/metagent"
+BIN="$REPO_ROOT/target/release/mung"
 
 cargo build --release
 

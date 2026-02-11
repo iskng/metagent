@@ -30,6 +30,8 @@ use crate::util::{
 };
 
 pub static INTERRUPTED: AtomicBool = AtomicBool::new(false);
+const PROMPT_HOME_DIR: &str = ".mung";
+const LEGACY_PROMPT_HOME_DIR: &str = ".metagent";
 
 #[cfg(unix)]
 fn link_prompt(target: &Path, link: &Path) -> Result<()> {
@@ -94,13 +96,13 @@ pub enum IssueCommands {
         stdin_body: bool,
     },
     Resolve {
-        #[arg(help = "Issue ID (use `metagent issues` to list IDs)")]
+        #[arg(help = "Issue ID (use `mung issues` to list IDs)")]
         id: String,
         #[arg(long)]
         resolution: Option<String>,
     },
     Assign {
-        #[arg(help = "Issue ID (use `metagent issues` to list IDs)")]
+        #[arg(help = "Issue ID (use `mung issues` to list IDs)")]
         id: String,
         #[arg(long)]
         task: String,
@@ -108,7 +110,7 @@ pub enum IssueCommands {
         stage: Option<String>,
     },
     Show {
-        #[arg(help = "Issue ID (use `metagent issues` to list IDs)")]
+        #[arg(help = "Issue ID (use `mung issues` to list IDs)")]
         id: String,
     },
 }
@@ -120,13 +122,16 @@ pub struct CommandContext {
     pub repo_root: PathBuf,
     pub agent_root: PathBuf,
     pub prompt_root: PathBuf,
+    pub legacy_prompt_root: PathBuf,
     pub host: String,
 }
 
 impl CommandContext {
     pub fn new(agent: AgentKind, model_choice: ModelChoice, repo_root: PathBuf) -> Result<Self> {
         let agent_root = get_agent_root(&repo_root, agent.name())?;
-        let prompt_root = home_dir()?.join(".metagent").join(agent.name());
+        let home = home_dir()?;
+        let prompt_root = home.join(PROMPT_HOME_DIR).join(agent.name());
+        let legacy_prompt_root = home.join(LEGACY_PROMPT_HOME_DIR).join(agent.name());
         let host = hostname::get()
             .unwrap_or_default()
             .to_string_lossy()
@@ -137,6 +142,7 @@ impl CommandContext {
             repo_root,
             agent_root,
             prompt_root,
+            legacy_prompt_root,
             host,
         })
     }
@@ -233,8 +239,8 @@ pub fn cmd_install() -> Result<()> {
     let bin_dir = home.join(".local/bin");
     fs::create_dir_all(&bin_dir)?;
     let exe = env::current_exe().context("Unable to locate current executable")?;
-    let dest = bin_dir.join("metagent");
-    fs::copy(&exe, &dest).context("Failed to install metagent binary")?;
+    let dest = bin_dir.join("mung");
+    fs::copy(&exe, &dest).context("Failed to install mung binary")?;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
@@ -268,9 +274,9 @@ pub fn cmd_install() -> Result<()> {
         _ => {}
     }
 
-    let metagent_dir = home.join(".metagent");
+    let prompt_home = home.join(PROMPT_HOME_DIR);
     for agent in [AgentKind::Code, AgentKind::Writer] {
-        let agent_dir = metagent_dir.join(agent.name());
+        let agent_dir = prompt_home.join(agent.name());
         fs::create_dir_all(&agent_dir)?;
         for (file, content) in agent.install_prompts() {
             write_text(&agent_dir.join(file), content)?;
@@ -283,7 +289,7 @@ pub fn cmd_install() -> Result<()> {
         fs::create_dir_all(dir)?;
     }
     for agent in [AgentKind::Code, AgentKind::Writer] {
-        let prompt_dir = metagent_dir.join(agent.name());
+        let prompt_dir = prompt_home.join(agent.name());
         for (prompt_file, command_name) in agent.slash_commands() {
             let target = prompt_dir.join(prompt_file);
             if !target.exists() {
@@ -305,14 +311,15 @@ pub fn cmd_install() -> Result<()> {
         }
     }
 
-    println!("Installed metagent to {}", dest.display());
+    println!("Installed mung to {}", dest.display());
     Ok(())
 }
 
 pub fn cmd_uninstall() -> Result<()> {
     let home = home_dir()?;
-    let bin_dir = home.join(".local/bin/metagent");
-    let metagent_dir = home.join(".metagent");
+    let bin_dir = home.join(".local/bin/mung");
+    let prompt_home = home.join(PROMPT_HOME_DIR);
+    let legacy_prompt_home = home.join(LEGACY_PROMPT_HOME_DIR);
     let claude_commands = home.join(".claude/commands");
     let codex_commands = home.join(".codex/prompts");
 
@@ -332,16 +339,21 @@ pub fn cmd_uninstall() -> Result<()> {
                 continue;
             }
             if let Ok(target) = fs::read_link(&path) {
-                if target.starts_with(&metagent_dir) {
+                if target.starts_with(&prompt_home) || target.starts_with(&legacy_prompt_home) {
                     fs::remove_file(&path)?;
                 }
             }
         }
     }
 
-    if metagent_dir.exists() {
-        fs::remove_dir_all(&metagent_dir)?;
-        println!("Removed {}", metagent_dir.display());
+    if prompt_home.exists() {
+        fs::remove_dir_all(&prompt_home)?;
+        println!("Removed {}", prompt_home.display());
+    }
+
+    if legacy_prompt_home.exists() {
+        fs::remove_dir_all(&legacy_prompt_home)?;
+        println!("Removed {}", legacy_prompt_home.display());
     }
 
     Ok(())
@@ -516,7 +528,7 @@ pub fn cmd_queue(ctx: &CommandContext, task: Option<&str>) -> Result<()> {
         let dir = task_dir(&ctx.agent_root, task);
         if !dir.exists() {
             bail!(
-                "Task '{}' not found. Create it with 'metagent task {}'",
+                "Task '{}' not found. Create it with 'mung task {}'",
                 task,
                 task
             );
@@ -551,7 +563,7 @@ pub fn cmd_queue(ctx: &CommandContext, task: Option<&str>) -> Result<()> {
     };
     if issue_counts.unassigned > 0 {
         println!(
-            "Unassigned issues: {} (run 'metagent issues --unassigned')",
+            "Unassigned issues: {} (run 'mung issues --unassigned')",
             issue_counts.unassigned
         );
     }
@@ -1021,10 +1033,7 @@ pub fn cmd_start(ctx: &CommandContext) -> Result<()> {
                         if next_stage == handoff {
                             if let Some(task) = task_name.as_ref() {
                                 println!("Task '{}' is ready.", task);
-                                println!(
-                                    "Run 'metagent run {}' or 'metagent run-queue' to start.",
-                                    task
-                                );
+                                println!("Run 'mung run {}' or 'mung run-queue' to start.", task);
                             }
                             return Ok(());
                         }
@@ -1076,7 +1085,7 @@ pub fn cmd_run(ctx: &CommandContext, task: &str) -> Result<()> {
     let task_path = task_state_path(&ctx.agent_root, task);
     if !task_path.exists() {
         bail!(
-            "Task '{}' not found. Run 'metagent queue {}' to add it first.",
+            "Task '{}' not found. Run 'mung queue {}' to add it first.",
             task,
             task
         );
@@ -1135,7 +1144,7 @@ pub fn cmd_run(ctx: &CommandContext, task: &str) -> Result<()> {
                     task_state.updated_at = now_iso();
                     Ok(())
                 })?;
-                println!("Session ended. Run 'metagent run {}' to continue.", task);
+                println!("Session ended. Run 'mung run {}' to continue.", task);
                 return Ok(());
             }
         }
@@ -1461,10 +1470,7 @@ fn cmd_issue_add(
 fn cmd_issue_resolve(ctx: &CommandContext, id: &str, resolution: Option<String>) -> Result<()> {
     let path = issue_path(&ctx.agent_root, id);
     if !path.exists() {
-        bail!(
-            "Issue '{}' not found (run `metagent issues` to list IDs)",
-            id
-        );
+        bail!("Issue '{}' not found (run `mung issues` to list IDs)", id);
     }
     let mut issue = crate::issues::load_issue(&path)?;
     issue.status = IssueStatus::Resolved;
@@ -1491,10 +1497,7 @@ fn cmd_issue_assign(
     validate_task_name(task)?;
     let path = issue_path(&ctx.agent_root, id);
     if !path.exists() {
-        bail!(
-            "Issue '{}' not found (run `metagent issues` to list IDs)",
-            id
-        );
+        bail!("Issue '{}' not found (run `mung issues` to list IDs)", id);
     }
     let mut issue = crate::issues::load_issue(&path)?;
     issue.task = Some(task.to_string());
@@ -1523,10 +1526,7 @@ fn cmd_issue_assign(
 fn cmd_issue_show(ctx: &CommandContext, id: &str) -> Result<()> {
     let path = issue_path(&ctx.agent_root, id);
     if !path.exists() {
-        bail!(
-            "Issue '{}' not found (run `metagent issues` to list IDs)",
-            id
-        );
+        bail!("Issue '{}' not found (run `mung issues` to list IDs)", id);
     }
     let content = read_text(&path)?;
     println!("{}", content);
@@ -1800,23 +1800,29 @@ fn format_stage_history(stage: &str, count: usize) -> String {
 }
 
 fn list_how_topics(ctx: &CommandContext) -> Result<Vec<String>> {
-    let how_dir = ctx.prompt_root.join("how");
     let mut topics = Vec::new();
-    if let Ok(entries) = fs::read_dir(&how_dir) {
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if !path.is_file() {
-                continue;
-            }
-            if let Some(ext) = path.extension().and_then(|ext| ext.to_str()) {
-                if ext != "md" {
+    let mut seen = HashSet::new();
+    for root in prompt_roots(ctx) {
+        let how_dir = root.join("how");
+        if let Ok(entries) = fs::read_dir(&how_dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if !path.is_file() {
                     continue;
                 }
-            } else {
-                continue;
-            }
-            if let Some(stem) = path.file_stem().and_then(|stem| stem.to_str()) {
-                topics.push(stem.to_string());
+                if let Some(ext) = path.extension().and_then(|ext| ext.to_str()) {
+                    if ext != "md" {
+                        continue;
+                    }
+                } else {
+                    continue;
+                }
+                if let Some(stem) = path.file_stem().and_then(|stem| stem.to_str()) {
+                    let topic = stem.to_string();
+                    if seen.insert(topic.clone()) {
+                        topics.push(topic);
+                    }
+                }
             }
         }
     }
@@ -1855,16 +1861,18 @@ fn normalize_how_topic(raw: &str) -> String {
 
 fn load_how_prompt(ctx: &CommandContext, topic: &str) -> Result<String> {
     let file_name = format!("{topic}.md");
-    let prompt_path = ctx.prompt_root.join("how").join(&file_name);
-    if prompt_path.exists() {
-        return read_text(&prompt_path);
+    for root in prompt_roots(ctx) {
+        let prompt_path = root.join("how").join(&file_name);
+        if prompt_path.exists() {
+            return read_text(&prompt_path);
+        }
     }
     let embedded_key = format!("how/{file_name}");
     if let Some(embedded) = ctx.agent.embedded_prompt(&embedded_key) {
         return Ok(embedded.to_string());
     }
     bail!(
-        "No how prompt found for '{}'. Run 'metagent how' to list topics.",
+        "No how prompt found for '{}'. Run 'mung how' to list topics.",
         topic
     );
 }
@@ -2205,6 +2213,10 @@ fn resolve_model(
     choice.model
 }
 
+fn prompt_roots(ctx: &CommandContext) -> [&Path; 2] {
+    [ctx.prompt_root.as_path(), ctx.legacy_prompt_root.as_path()]
+}
+
 fn reconcile_running_tasks(agent_root: &Path) -> Result<()> {
     let tasks = list_tasks(agent_root);
     for task in tasks
@@ -2238,9 +2250,11 @@ fn load_stage_prompt(ctx: &CommandContext, stage: &str, task: Option<&str>) -> R
         return read_text(&prompt_path);
     }
 
-    let prompt_file = ctx.prompt_root.join(&prompt_path);
-    if prompt_file.exists() {
-        return read_text(&prompt_file);
+    for root in prompt_roots(ctx) {
+        let prompt_file = root.join(&prompt_path);
+        if prompt_file.exists() {
+            return read_text(&prompt_file);
+        }
     }
 
     let file_name = prompt_path
@@ -2251,17 +2265,21 @@ fn load_stage_prompt(ctx: &CommandContext, stage: &str, task: Option<&str>) -> R
         return Ok(embedded.to_string());
     }
 
+    let prompt_file = ctx.prompt_root.join(&prompt_path);
     bail!("Prompt file not found: {}", prompt_file.display())
 }
 
 fn load_prompt_by_name(ctx: &CommandContext, name: &str) -> Result<String> {
-    let prompt_file = ctx.prompt_root.join(name);
-    if prompt_file.exists() {
-        return read_text(&prompt_file);
+    for root in prompt_roots(ctx) {
+        let prompt_file = root.join(name);
+        if prompt_file.exists() {
+            return read_text(&prompt_file);
+        }
     }
     if let Some(embedded) = ctx.agent.embedded_prompt(name) {
         return Ok(embedded.to_string());
     }
+    let prompt_file = ctx.prompt_root.join(name);
     bail!("Prompt file not found: {}", prompt_file.display());
 }
 
@@ -2683,7 +2701,7 @@ fn build_review_finish_instructions(
     session_id: &str,
 ) -> String {
     if mode == ReviewFinishMode::Manual {
-        return "7. Manual review: do not run `metagent finish`. End after the report.".to_string();
+        return "7. Manual review: do not run `mung finish`. End after the report.".to_string();
     }
     let task = match task {
         Some(task) => task,
@@ -2692,8 +2710,8 @@ fn build_review_finish_instructions(
     let repo = repo_root.display();
     format!(
         "7. Signal next stage:\n\
-- Spec issues exist (any open) or spec needs revision: `cd \"{repo}\" && METAGENT_TASK=\"{task}\" metagent --agent code finish review --session \"{session_id}\" --next spec-review-issues`\n\
-- Only build issues (no spec issues): `cd \"{repo}\" && METAGENT_TASK=\"{task}\" metagent --agent code finish review --session \"{session_id}\" --next build`\n\
-- Pass (no issues): `cd \"{repo}\" && METAGENT_TASK=\"{task}\" metagent --agent code finish review --session \"{session_id}\"`"
+- Spec issues exist (any open) or spec needs revision: `cd \"{repo}\" && METAGENT_TASK=\"{task}\" mung --agent code finish review --session \"{session_id}\" --next spec-review-issues`\n\
+- Only build issues (no spec issues): `cd \"{repo}\" && METAGENT_TASK=\"{task}\" mung --agent code finish review --session \"{session_id}\" --next build`\n\
+- Pass (no issues): `cd \"{repo}\" && METAGENT_TASK=\"{task}\" mung --agent code finish review --session \"{session_id}\"`"
     )
 }

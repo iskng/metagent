@@ -34,6 +34,6 @@
 9999999. Combine small (S) tasks into medium (M) tasks - avoid many tiny items.
 99999999. EVERY SPEC REQUIREMENT MUST MAP TO A TASK
 999999999. PLAN ONLY - NO IMPLEMENTATION
-9999999999. WHEN PLAN IS COMPLETE: run cd "{repo}" && METAGENT_TASK="{task}" metagent --agent code finish planning --session "{session}" to advance to build phase.
+9999999999. WHEN PLAN IS COMPLETE: run cd "{repo}" && METAGENT_TASK="{task}" mung --agent code finish planning --session "{session}" to advance to build phase.
 {issues_mode}
 {parallelism_mode}

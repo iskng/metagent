@@ -2,7 +2,7 @@
 0b. Study @.agents/code/tasks/{task}/plan.md - Notes about why this was sent back to spec
 0c. Study @.agents/code/TECHNICAL_STANDARDS.md - Codebase patterns to follow
 0d. Study @.agents/code/AGENTS.md - Build/test commands and learnings
-0e. If there are open issues, review them: `metagent issues --task {task}`
+0e. If there are open issues, review them: `mung issues --task {task}`
 {issues_header}
 
 1. Research the current implementation. Do not assume anything is missing or correct.
@@ -13,6 +13,6 @@
 
 999. SPECS ONLY - NO CODE - This phase is for specification authoring only.
 9999. FULL SPECIFICATIONS ONLY. NO PLACEHOLDERS. NO STUB DESCRIPTIONS. NO TODO COMMENTS.
-99999. WHEN SPECS COMPLETE: run cd "{repo}" && METAGENT_TASK="{task}" metagent --agent code finish spec-review-issues --session "{session}" to signal this phase complete.
+99999. WHEN SPECS COMPLETE: run cd "{repo}" && METAGENT_TASK="{task}" mung --agent code finish spec-review-issues --session "{session}" to signal this phase complete.
 {issues_mode}
 {parallelism_mode}

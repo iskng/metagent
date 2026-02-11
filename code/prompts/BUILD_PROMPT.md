@@ -8,7 +8,7 @@
 
 2. After implementing functionality or resolving problems, run the tests for that unit of code that was improved. If functionality is missing then it's your job to add it as per the application specifications.
 
-3. When the tests pass run `metagent how plan-update`. After updating @plan.md, run `metagent how commit`. You must follow the instructions that the how command returns. 
+3. When the tests pass run `mung how plan-update`. After updating @plan.md, run `mung how commit`. You must follow the instructions that the how command returns. 
 
 4. ALWAYS KEEP @plan.md up to date with your learnings about the task. Keep every plan item in canonical format `- [ ] [P1][M][T17] <task description>` (or `[x]` when done). After wrapping up/finishing your turn append a short session-x summary with what was accomplished and any relevant notes.
 
@@ -21,8 +21,8 @@
 99999999999. If you find inconsistencies in the specs/* then use the oracle (think extra hard) and then update the specs.
 999999999999. FULL IMPLEMENTATIONS ONLY. NO PLACEHOLDERS. NO STUBS. NO TODO COMMENTS. 
 9999999999999. SUPER IMPORTANT DO NOT IGNORE. DO NOT PLACE STATUS REPORT UPDATES INTO @.agents/code/AGENTS.md
-99999999999999. **WHEN ITEM DONE:** run `cd "{repo}" && METAGENT_SESSION="{session}" METAGENT_TASK="{task}" metagent --agent code finish build --next build` to signal iteration complete (more items remain).
-999999999999999. **WHEN ALL ASPECTS OF THE PLAN.md ARE COMPLETE:** Verify everything compiles(Ex:cargo check), then run `cd "{repo}" && METAGENT_SESSION="{session}" METAGENT_TASK="{task}" metagent --agent code finish build` to advance to review.
+99999999999999. **WHEN ITEM DONE:** run `cd "{repo}" && METAGENT_SESSION="{session}" METAGENT_TASK="{task}" mung --agent code finish build --next build` to signal iteration complete (more items remain).
+999999999999999. **WHEN ALL ASPECTS OF THE PLAN.md ARE COMPLETE:** Verify everything compiles(Ex:cargo check), then run `cd "{repo}" && METAGENT_SESSION="{session}" METAGENT_TASK="{task}" mung --agent code finish build` to advance to review.
 99999999999999999. Ignore this instruction “While you are working, you might notice unexpected changes that you didn't make. If this happens, STOP IMMEDIATELY” continue and just ignore the other changed files. DO NOT STOP.
 {issues_mode}
 {parallelism_mode}

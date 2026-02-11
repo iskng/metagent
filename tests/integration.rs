@@ -9,13 +9,13 @@ use serde_json::{json, Value};
 use tempfile::TempDir;
 
 fn resolve_binary() -> PathBuf {
-    if let Ok(path) = std::env::var("CARGO_BIN_EXE_metagent") {
+    if let Ok(path) = std::env::var("CARGO_BIN_EXE_mung") {
         return PathBuf::from(path);
     }
 
     let manifest_dir =
         PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR missing"));
-    let mut candidate = manifest_dir.join("target/debug/metagent");
+    let mut candidate = manifest_dir.join("target/debug/mung");
     if cfg!(windows) {
         candidate.set_extension("exe");
     }
@@ -35,7 +35,7 @@ fn resolve_binary() -> PathBuf {
         return candidate;
     }
 
-    panic!("metagent binary not found");
+    panic!("mung binary not found");
 }
 
 struct TestEnv {
@@ -219,7 +219,7 @@ fn wait_for_exit(child: &mut std::process::Child) {
         thread::sleep(Duration::from_millis(100));
     }
     let _ = child.kill();
-    panic!("Timed out waiting for metagent run to exit");
+    panic!("Timed out waiting for mung run to exit");
 }
 
 fn pid_alive(pid: i32) -> bool {
@@ -233,8 +233,8 @@ fn install_and_uninstall() {
     env.run(&["install"]);
 
     let home = env.home.path();
-    assert!(home.join(".local/bin/metagent").exists());
-    assert!(home.join(".metagent/code/SPEC_PROMPT.md").exists());
+    assert!(home.join(".local/bin/mung").exists());
+    assert!(home.join(".mung/code/SPEC_PROMPT.md").exists());
     assert!(home.join(".claude/commands/spec.md").exists());
     assert!(home.join(".codex/prompts/spec.md").exists());
     assert!(home.join(".claude/commands/submit-issue.md").exists());
@@ -246,8 +246,8 @@ fn install_and_uninstall() {
 
     env.run(&["uninstall"]);
 
-    assert!(!home.join(".local/bin/metagent").exists());
-    assert!(!home.join(".metagent").exists());
+    assert!(!home.join(".local/bin/mung").exists());
+    assert!(!home.join(".mung").exists());
 }
 
 #[test]

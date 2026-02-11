@@ -32,7 +32,7 @@ Study these files first (in order):
 - @.agents/code/AGENTS.md - Project build commands and structure
 - @.agents/code/TECHNICAL_STANDARDS.md - Coding patterns to follow
 - @.agents/code/issues/ - Issue files (open + resolved)
-- `metagent issues --status open` - Open issue list
+- `mung issues --status open` - Open issue list
 
 ---
 
@@ -111,7 +111,7 @@ Search each task's spec/ for matches
 
 If no matching task found:
 - Treat as an unassigned bug and create an issue with no task:
-  `metagent issue add --title "<short title>" --priority P1 --type bug --source debug --stdin-body`
+  `mung issue add --title "<short title>" --priority P1 --type bug --source debug --stdin-body`
 - Ask the user whether to create a new task or hotfix later, but **do not** create a task unless asked
 
 ### 2.3 Load Task Context
@@ -123,7 +123,7 @@ Once taskname identified, read in order:
 ├── spec/types.md
 ├── spec/*.md (all other specs)
 ├── plan.md
-└── (use `metagent issues --task {taskname}` to review open issues)
+└── (use `mung issues --task {taskname}` to review open issues)
 ```
 
 ---
@@ -186,7 +186,7 @@ If a task is identified, include `--task {taskname}`. If no task is identified, 
 Use this template:
 
 ```bash
-cat <<'EOF' | metagent issue add --title "{Human-Readable Title}" --task {taskname} --priority P1 --type bug --source debug --stdin-body
+cat <<'EOF' | mung issue add --title "{Human-Readable Title}" --task {taskname} --priority P1 --type bug --source debug --stdin-body
 # Bug: {Human-Readable Title}
 
 ## Description
@@ -242,7 +242,7 @@ If the issue is assigned to a task, add it to `.agents/code/tasks/{taskname}/pla
 ## PART 5: WRITE FAILING TEST
 
 If the issue is unassigned, pause here and ask whether to create a task or hotfix (or assign it to an existing task) before writing tests or making code changes.
-Use `metagent issue assign {issue-id} --task {taskname}` when you have a task.
+Use `mung issue assign {issue-id} --task {taskname}` when you have a task.
 
 ### 5.1 Identify Test Location
 
@@ -356,7 +356,7 @@ When fixed, update issue file:
 ```
 
 Mark the issue resolved:
-- `metagent issue resolve {issue-id} --resolution "{what changed}"`
+- `mung issue resolve {issue-id} --resolution "{what changed}"`
 
 Update `plan.md`:
 - Mark bug task as complete
@@ -400,14 +400,14 @@ Bug Reported
 
 ```bash
 # List all issues
-metagent issues --status all
+mung issues --status all
 find .agents/code/issues -name "*.md" | head -20
 
 # Search for specific bug
 rg "BUG:" .agents/code/tasks/*/plan.md
 
 # Count open unassigned issues
-metagent issues --unassigned
+mung issues --unassigned
 
 # Run specific failing test
 {TEST_COMMAND} --filter {test_name}

@@ -52,7 +52,7 @@ pub fn issues_text(
         None => return (String::new(), String::new()),
     };
     let header = format!(
-        "0d. Review open issues first: `metagent issues --task {task}`\n\n1. **PRIORITY: Issues** - Resolve all open issues before proceeding. After fixing an issue, mark it resolved:\n   `metagent issue resolve <id> --resolution \"<brief explanation of the fix>\"`"
+        "0d. Review open issues first: `mung issues --task {task}`\n\n1. **PRIORITY: Issues** - Resolve all open issues before proceeding. After fixing an issue, mark it resolved:\n   `mung issue resolve <id> --resolution \"<brief explanation of the fix>\"`"
     );
     let mode = format!(
         "99999999999999. **REVIEW ISSUES:** This task has open issues. Resolve them before finishing this phase."

@@ -40,26 +40,26 @@ A structured, autonomous writing workflow for books, courses, and long-form cont
 
 ## Quick Start
 
-### 1. Install metagent (first time only)
+### 1. Install mung (first time only)
 
 ```bash
-# From metagent repo
+# From mung repo
 cargo run -- install
-# or: cargo build --release && ./target/release/metagent install
+# or: cargo build --release && ./target/release/mung install
 ```
 
 ### 2. Initialize writer in your project
 
 ```bash
 cd ~/my-writing-project
-metagent --agent writer init
+mung --agent writer init
 ```
 
 ### 3. Start a new writing project
 
 ```bash
 # Interactive mode
-metagent --agent writer start
+mung --agent writer start
 # Conducts interview → creates task → generates structure → runs plan/write loops
 
 # Or manually with /writer-init slash command in Claude
@@ -68,7 +68,7 @@ metagent --agent writer start
 ### 4. Resume the writing loop (optional)
 
 ```bash
-metagent --agent writer run my-book
+mung --agent writer run my-book
 # Resumes: plan → write → write → ... → plan → write → ...
 ```
 
@@ -105,24 +105,24 @@ init ──────────────────────▶ plan
 ```
 
 **Completion signals:**
-- `metagent finish write --session "<session>" --next write` - more pages in current section
-- `metagent finish write --session "<session>" --next plan` - section done, plan next one
-- `metagent finish write --session "<session>"` - all sections complete
+- `mung finish write --session "<session>" --next write` - more pages in current section
+- `mung finish write --session "<session>" --next plan` - section done, plan next one
+- `mung finish write --session "<session>"` - all sections complete
 
 ---
 
 ## Directory Structure
 
-### Global (after `metagent install`)
+### Global (after `mung install`)
 
 ```
-~/.metagent/writer/
+~/.mung/writer/
 ├── INIT_PROMPT.md         # Project setup interview
 ├── PLANNING_PROMPT.md     # Section planning
 └── PROMPT.md              # Writing loop
 ```
 
-### Per-project (after `metagent --agent writer init`)
+### Per-project (after `mung --agent writer init`)
 
 ```
 your-project/
@@ -213,27 +213,27 @@ Learnings persist across loops:
 
 ```bash
 # Global setup (first time)
-metagent install
+mung install
 
 # Initialize writer in a project
-metagent --agent writer init
+mung --agent writer init
 
 # Start a new writing task (interactive)
-metagent --agent writer start
+mung --agent writer start
 
 # Create a new task
-metagent --agent writer task my-book
+mung --agent writer task my-book
 
 # Show task queue
-metagent --agent writer queue
+mung --agent writer queue
 
 # Run the writing loop
-metagent --agent writer run my-book
+mung --agent writer run my-book
 
 # Signal stage completion
-metagent finish write --session "<session>" --next write   # more pages
-metagent finish write --session "<session>" --next plan    # next section
-metagent finish write --session "<session>"                # all done
+mung finish write --session "<session>" --next write   # more pages
+mung finish write --session "<session>" --next plan    # next section
+mung finish write --session "<session>"                # all done
 ```
 
 ---

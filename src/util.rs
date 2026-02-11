@@ -37,13 +37,13 @@ pub fn get_repo_root(start: Option<PathBuf>) -> Result<PathBuf> {
         }
     }
 
-    bail!("No repo found (missing .agents/ or .git). Run 'metagent init' in a repo.")
+    bail!("No repo found (missing .agents/ or .git). Run 'mung init' in a repo.")
 }
 
 pub fn get_agent_root(repo_root: &Path, agent: &str) -> Result<PathBuf> {
     let agents_dir = repo_root.join(".agents");
     if !agents_dir.is_dir() {
-        bail!(".agents/ not found in repo. Run 'metagent init' first.");
+        bail!(".agents/ not found in repo. Run 'mung init' first.");
     }
 
     Ok(agents_dir.join(agent))

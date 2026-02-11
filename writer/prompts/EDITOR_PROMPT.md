@@ -467,17 +467,17 @@ Check editorial_plan.md to determine which command to run:
 
 1. **More pages in current section?** (unchecked `- [ ]` pages exist in current section)
    ```bash
-   cd "{repo}" && METAGENT_TASK="{task}" metagent --agent writer finish edit --session "{session}" --next write
+   cd "{repo}" && METAGENT_TASK="{task}" mung --agent writer finish edit --session "{session}" --next write
    ```
 
 2. **Section complete, more sections to plan?**
    ```bash
-   cd "{repo}" && METAGENT_TASK="{task}" metagent --agent writer finish edit --session "{session}" --next plan
+   cd "{repo}" && METAGENT_TASK="{task}" mung --agent writer finish edit --session "{session}" --next plan
    ```
 
 3. **All sections complete?**
    ```bash
-   cd "{repo}" && METAGENT_TASK="{task}" metagent --agent writer finish edit --session "{session}"
+   cd "{repo}" && METAGENT_TASK="{task}" mung --agent writer finish edit --session "{session}"
    ```
 
 **RUN THE APPROPRIATE COMMAND NOW using Bash tool, then STOP.**

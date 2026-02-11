@@ -67,7 +67,7 @@ Before generating files, summarize back:
 Once requirements are clear, create the task:
 
 ```bash
-cd "{repo}" && metagent --agent writer task {projectname}
+cd "{repo}" && mung --agent writer task {projectname}
 ```
 
 This creates the task directory at `.agents/writer/tasks/{projectname}/`.
@@ -249,7 +249,7 @@ After all files are generated:
 3. **Signal completion:**
 
 ```bash
-cd "{repo}" && METAGENT_TASK="{task}" metagent --agent writer finish init --session "{session}"
+cd "{repo}" && METAGENT_TASK="{task}" mung --agent writer finish init --session "{session}"
 ```
 
 ---
@@ -259,7 +259,7 @@ cd "{repo}" && METAGENT_TASK="{task}" metagent --agent writer finish init --sess
 1. **Interview first** - Understand before creating
 2. **Confirm understanding** - Summarize back to user
 3. **Complete files** - No placeholders
-4. **Use metagent task** - Creates proper directory structure
+4. **Use mung task** - Creates proper directory structure
 
 ## PRIORITY
 

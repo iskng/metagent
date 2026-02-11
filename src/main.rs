@@ -23,7 +23,7 @@ use model::Model;
 use util::get_repo_root;
 
 #[derive(Parser)]
-#[command(name = "metagent")]
+#[command(name = "mung")]
 #[command(version)]
 #[command(about = "Agent workflow manager", long_about = None)]
 struct Cli {

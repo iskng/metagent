@@ -1,6 +1,6 @@
-# metagent
+# mung
 
-`metagent` is a Rust CLI for running structured multi-stage agent workflows in a repo.
+`mung` is a Rust CLI for running structured multi-stage agent workflows in a repo.
 
 It manages:
 - agent stages (`code` and `writer`)
@@ -13,11 +13,11 @@ It manages:
 
 - Rust toolchain (to build from source)
 - `codex` CLI and/or `claude` CLI installed
-- Git repo for normal usage (`metagent init` warns if no `.git`)
+- Git repo for normal usage (`mung init` warns if no `.git`)
 
 Important defaults:
 - Default agent: `code`
-- Running `metagent` with no command is the same as `metagent start`
+- Running `mung` with no command is the same as `mung start`
 - `code` workflow stages default to `codex` unless you explicitly override with model flags/env
 
 ## Install
@@ -29,18 +29,18 @@ cargo build --release
 ```
 
 Binary path:
-- `target/release/metagent`
+- `target/release/mung`
 
 ### Install globally
 
 ```bash
 cargo run -- install
-# or: ./target/release/metagent install
+# or: ./target/release/mung install
 ```
 
 This installs:
-- `~/.local/bin/metagent`
-- prompts under `~/.metagent/code/` and `~/.metagent/writer/`
+- `~/.local/bin/mung`
+- prompts under `~/.mung/code/` and `~/.mung/writer/`
 - slash-command symlinks under:
   - `~/.claude/commands/`
   - `~/.codex/prompts/`
@@ -54,13 +54,13 @@ export PATH="$HOME/.local/bin:$PATH"
 ### Uninstall
 
 ```bash
-metagent uninstall
+mung uninstall
 ```
 
 This removes:
-- `~/.local/bin/metagent`
-- linked metagent prompt files in `~/.claude/commands` and `~/.codex/prompts`
-- `~/.metagent/`
+- `~/.local/bin/mung`
+- linked mung prompt files in `~/.claude/commands` and `~/.codex/prompts`
+- `~/.mung/`
 
 ## Quick Start
 
@@ -68,21 +68,21 @@ This removes:
 
 ```bash
 cd /path/to/repo
-metagent init
-metagent start
+mung init
+mung start
 ```
 
 Typical flow:
 1. `start` runs `spec -> planning`
 2. for `code`, `start` stops at `build` handoff
-3. continue with `metagent run <task>` or `metagent run-queue`
+3. continue with `mung run <task>` or `mung run-queue`
 
 ### Writer agent
 
 ```bash
 cd /path/to/repo
-metagent --agent writer init
-metagent --agent writer start
+mung --agent writer init
+mung --agent writer start
 ```
 
 Writer stages are: `init -> plan -> write -> edit -> completed`.
@@ -114,24 +114,24 @@ Queue-processing stages (`run-queue` / `run-next`):
 
 ```mermaid
 flowchart TD
-    A[metagent init] --> B[metagent task <task>]
-    B --> C[Run one Codex session for spec work<br/>metagent run <task>]
+    A[mung init] --> B[mung task <task>]
+    B --> C[Run one Codex session for spec work<br/>mung run <task>]
     C --> D[Research codebase + write spec]
-    D --> E[Submit spec<br/>metagent finish spec --session <id> --task <task>]
+    D --> E[Submit spec<br/>mung finish spec --session <id> --task <task>]
 
     E --> F{Improve spec before build?}
-    F -->|manual spec review| G[metagent spec-review <task>]
-    F -->|targeted research| H[metagent research <task> <focus>]
+    F -->|manual spec review| G[mung spec-review <task>]
+    F -->|targeted research| H[mung research <task> <focus>]
 
-    G --> I[Refine spec + submit review stage<br/>metagent finish spec-review --session <id> --task <task>]
+    G --> I[Refine spec + submit review stage<br/>mung finish spec-review --session <id> --task <task>]
     H --> J[Update spec files]
-    J --> K[Submit spec stage again if needed<br/>metagent finish spec --session <id> --task <task>]
+    J --> K[Submit spec stage again if needed<br/>mung finish spec --session <id> --task <task>]
     I --> L[planning]
     K --> L
     F -->|no| L
 
-    L --> M[Submit planning<br/>metagent finish planning --session <id> --task <task>]
-    M --> N[Scale execution with queue<br/>metagent run-queue]
+    L --> M[Submit planning<br/>mung finish planning --session <id> --task <task>]
+    M --> N[Scale execution with queue<br/>mung run-queue]
     N --> O[build -> review loop]
     O --> P{review pass?}
     P -->|no| O
@@ -140,8 +140,8 @@ flowchart TD
 
 Operational notes:
 - this style keeps one primary Codex instance active for spec/planning work.
-- “submit spec” in practice is `metagent finish spec ...` (or `finish spec-review ...` after manual review).
-- `metagent research` helps improve spec quality before moving into queue execution.
+- “submit spec” in practice is `mung finish spec ...` (or `finish spec-review ...` after manual review).
+- `mung research` helps improve spec quality before moving into queue execution.
 - `run-queue` then drives iterative `build -> review` until completion.
 
 ### Writer stages
@@ -166,50 +166,50 @@ Queue-processing stages:
 Global usage:
 
 ```bash
-metagent [--agent <code|writer>] [--model <claude|codex>] [--force-model] <command>
+mung [--agent <code|writer>] [--model <claude|codex>] [--force-model] <command>
 ```
 
 ### Setup and lifecycle
 
-- `metagent install`
-- `metagent uninstall`
-- `metagent init [path]`
-- `metagent start`
+- `mung install`
+- `mung uninstall`
+- `mung init [path]`
+- `mung start`
 
 ### Task and queue management
 
-- `metagent task <name> [--hold] [--description <text>]`
-- `metagent hold <name>`
-- `metagent activate <name>`
-- `metagent queue [task]` (alias: `q`)
-- `metagent plan <task>` (show parsed plan/checklist steps)
-- `metagent delete <name> [--force]` (alias: `dequeue`)
-- `metagent reorder <name> <position>` (build-stage only)
-- `metagent set-stage <name> <stage> [--status <status>]`
+- `mung task <name> [--hold] [--description <text>]`
+- `mung hold <name>`
+- `mung activate <name>`
+- `mung queue [task]` (alias: `q`)
+- `mung plan <task>` (show parsed plan/checklist steps)
+- `mung delete <name> [--force]` (alias: `dequeue`)
+- `mung reorder <name> <position>` (build-stage only)
+- `mung set-stage <name> <stage> [--status <status>]`
 
 ### Execution
 
-- `metagent run <name>`
-- `metagent run-next [name]` (alias: `rn`)
-- `metagent run-queue [--loop <n>]` (alias: `rq`)
-- `metagent finish [stage] [--next <stage>] [--session <id>] [--task <task>]`
+- `mung run <name>`
+- `mung run-next [name]` (alias: `rn`)
+- `mung run-queue [--loop <n>]` (alias: `rq`)
+- `mung finish [stage] [--next <stage>] [--session <id>] [--task <task>]`
 
 ### Review, research, debug
 
-- `metagent review <task> [focus]`
-- `metagent spec-review <task>`
-- `metagent research <task> [focus]` (`code` agent only)
-- `metagent debug [--file <path> | --stdin | <bug...>]` (uses `codex`)
-- `metagent how [topic]`
+- `mung review <task> [focus]`
+- `mung spec-review <task>`
+- `mung research <task> [focus]` (`code` agent only)
+- `mung debug [--file <path> | --stdin | <bug...>]` (uses `codex`)
+- `mung how [topic]`
 
 ### Issues (`code` agent only)
 
-- `metagent issues [--task <task> | --unassigned] [--status <open|resolved|all>] [--priority <P0..P3>] [--type <spec|build|bug|test|perf|other>] [--source <review|debug|submit|manual>]`
-- `metagent issue list ...` (same filters)
-- `metagent issue add --title <title> [--task <task>] [--priority ...] [--type ...] [--source ...] [--file <path>] [--stage <stage>] [--body <text> | --stdin-body]`
-- `metagent issue resolve <id> [--resolution <text>]`
-- `metagent issue assign <id> --task <task> [--stage <stage>]`
-- `metagent issue show <id>`
+- `mung issues [--task <task> | --unassigned] [--status <open|resolved|all>] [--priority <P0..P3>] [--type <spec|build|bug|test|perf|other>] [--source <review|debug|submit|manual>]`
+- `mung issue list ...` (same filters)
+- `mung issue add --title <title> [--task <task>] [--priority ...] [--type ...] [--source ...] [--file <path>] [--stage <stage>] [--body <text> | --stdin-body]`
+- `mung issue resolve <id> [--resolution <text>]`
+- `mung issue assign <id> --task <task> [--stage <stage>]`
+- `mung issue show <id>`
 
 ## How to Use
 
@@ -220,14 +220,14 @@ This section is the practical operator workflow.
 ```bash
 # from this repo
 cargo build --release
-./target/release/metagent install
+./target/release/mung install
 ```
 
 Check install:
 
 ```bash
-metagent --version
-metagent --help
+mung --version
+mung --help
 ```
 
 ### 2) One-time repo setup
@@ -236,14 +236,14 @@ Code repo:
 
 ```bash
 cd /path/to/your/repo
-metagent init
+mung init
 ```
 
 Writer repo:
 
 ```bash
 cd /path/to/your/writing/repo
-metagent --agent writer init
+mung --agent writer init
 ```
 
 ### 3) Create and inspect tasks
@@ -251,25 +251,25 @@ metagent --agent writer init
 Create a normal task:
 
 ```bash
-metagent task add-login-rate-limit --description "Protect login endpoint from abuse"
+mung task add-login-rate-limit --description "Protect login endpoint from abuse"
 ```
 
 Create backlog/held task:
 
 ```bash
-metagent task migrate-settings-schema --hold --description "Schema migration after Q2 launch"
+mung task migrate-settings-schema --hold --description "Schema migration after Q2 launch"
 ```
 
 Inspect all tasks:
 
 ```bash
-metagent queue
+mung queue
 ```
 
 Inspect one task (if it exists as task dir but not tracked yet, this also tracks it):
 
 ```bash
-metagent queue add-login-rate-limit
+mung queue add-login-rate-limit
 ```
 
 ### 4) Run a single code task end-to-end
@@ -277,29 +277,29 @@ metagent queue add-login-rate-limit
 Use this when focusing on one task:
 
 ```bash
-metagent run add-login-rate-limit
+mung run add-login-rate-limit
 ```
 
 What happens:
 1. task is claimed (lock created)
 2. current stage prompt is rendered and model CLI is started
-3. stage advances only when `metagent finish ...` is called
+3. stage advances only when `mung finish ...` is called
 4. loop continues until task reaches `completed`, interruption, or failure
 
 Manual `finish` examples for code:
 
 ```bash
 # default stage progression
-metagent finish spec --session <session-id> --task add-login-rate-limit
-metagent finish planning --session <session-id> --task add-login-rate-limit
-metagent finish build --session <session-id> --task add-login-rate-limit
+mung finish spec --session <session-id> --task add-login-rate-limit
+mung finish planning --session <session-id> --task add-login-rate-limit
+mung finish build --session <session-id> --task add-login-rate-limit
 
 # review stage: explicit branch
-metagent finish review --session <session-id> --task add-login-rate-limit --next build
-metagent finish review --session <session-id> --task add-login-rate-limit --next spec-review-issues
+mung finish review --session <session-id> --task add-login-rate-limit --next build
+mung finish review --session <session-id> --task add-login-rate-limit --next spec-review-issues
 
 # review pass
-metagent finish review --session <session-id> --task add-login-rate-limit
+mung finish review --session <session-id> --task add-login-rate-limit
 ```
 
 ### 5) Run many tasks from queue
@@ -307,34 +307,34 @@ metagent finish review --session <session-id> --task add-login-rate-limit
 Run exactly one eligible task-stage and return:
 
 ```bash
-metagent run-next
+mung run-next
 ```
 
 Run a specific task for one stage:
 
 ```bash
-metagent run-next add-login-rate-limit
+mung run-next add-login-rate-limit
 ```
 
 Run queue continuously:
 
 ```bash
-metagent run-queue
+mung run-queue
 ```
 
 Tune review/build bounce protection:
 
 ```bash
-metagent run-queue --loop 8
+mung run-queue --loop 8
 ```
 
 Queue control:
 
 ```bash
-metagent hold migrate-settings-schema
-metagent activate migrate-settings-schema
-metagent reorder add-login-rate-limit 1
-metagent delete old-experiment --force
+mung hold migrate-settings-schema
+mung activate migrate-settings-schema
+mung reorder add-login-rate-limit 1
+mung delete old-experiment --force
 ```
 
 ### 6) Use issue workflow (code agent)
@@ -342,7 +342,7 @@ metagent delete old-experiment --force
 Create issue:
 
 ```bash
-metagent issue add \
+mung issue add \
   --title "Race condition in token refresh" \
   --task add-login-rate-limit \
   --type bug \
@@ -354,19 +354,19 @@ metagent issue add \
 List open issues:
 
 ```bash
-metagent issues --task add-login-rate-limit
+mung issues --task add-login-rate-limit
 ```
 
 Resolve issue:
 
 ```bash
-metagent issue resolve <issue-id> --resolution "Added per-user lock and idempotency key."
+mung issue resolve <issue-id> --resolution "Added per-user lock and idempotency key."
 ```
 
 Assign unassigned issue to task and target stage:
 
 ```bash
-metagent issue assign <issue-id> --task add-login-rate-limit --stage build
+mung issue assign <issue-id> --task add-login-rate-limit --stage build
 ```
 
 ### 7) Review/spec-review/research/debug workflows
@@ -374,29 +374,29 @@ metagent issue assign <issue-id> --task add-login-rate-limit --stage build
 Focused manual review run:
 
 ```bash
-metagent review add-login-rate-limit "Focus on auth middleware and cache invalidation"
+mung review add-login-rate-limit "Focus on auth middleware and cache invalidation"
 ```
 
 Spec review run:
 
 ```bash
-metagent spec-review add-login-rate-limit
+mung spec-review add-login-rate-limit
 ```
 
 Research run (no direct state mutation by command itself):
 
 ```bash
-metagent research add-login-rate-limit "Compare current approach with existing session architecture"
+mung research add-login-rate-limit "Compare current approach with existing session architecture"
 ```
 
 Debug run:
 
 ```bash
-metagent debug "Login endpoint returns 500 after refresh token rotation"
+mung debug "Login endpoint returns 500 after refresh token rotation"
 # or
-metagent debug --file crash.log
+mung debug --file crash.log
 # or
-cat crash.log | metagent debug --stdin
+cat crash.log | mung debug --stdin
 ```
 
 ### 8) Writer workflow (practical)
@@ -404,17 +404,17 @@ cat crash.log | metagent debug --stdin
 Create and run:
 
 ```bash
-metagent --agent writer task handbook-v1 --description "Internal engineering handbook"
-metagent --agent writer run handbook-v1
+mung --agent writer task handbook-v1 --description "Internal engineering handbook"
+mung --agent writer run handbook-v1
 ```
 
 Writer stage transitions are explicit:
 
 ```bash
-metagent --agent writer finish init --session <session-id> --task handbook-v1
-metagent --agent writer finish plan --session <session-id> --task handbook-v1
-metagent --agent writer finish write --session <session-id> --task handbook-v1
-metagent --agent writer finish edit --session <session-id> --task handbook-v1
+mung --agent writer finish init --session <session-id> --task handbook-v1
+mung --agent writer finish plan --session <session-id> --task handbook-v1
+mung --agent writer finish write --session <session-id> --task handbook-v1
+mung --agent writer finish edit --session <session-id> --task handbook-v1
 ```
 
 Important:
@@ -425,37 +425,37 @@ Important:
 If interrupted (`Ctrl+C`), resume:
 
 ```bash
-metagent run add-login-rate-limit
+mung run add-login-rate-limit
 ```
 
 If stage/status drifted and you need manual correction:
 
 ```bash
-metagent set-stage add-login-rate-limit build --status pending
+mung set-stage add-login-rate-limit build --status pending
 ```
 
 If multiple sessions exist and `finish` cannot resolve one uniquely, pass session explicitly:
 
 ```bash
-metagent finish build --session <session-id> --task add-login-rate-limit
+mung finish build --session <session-id> --task add-login-rate-limit
 ```
 
 ### Command behavior notes
 
-- `metagent finish`:
+- `mung finish`:
   - default stage is `task` (works for `code`; `writer` should pass an explicit stage)
   - resolves session from `--session`, then `METAGENT_SESSION`, then a unique running session
-- `metagent review <task> [focus]` runs a one-shot manual review stage (no auto-`finish` instruction)
-- `metagent spec-review <task>` runs the spec-review stage once
-- `metagent queue <task>` adds an existing task directory into tracked queue state if `task.json` is missing
-- `metagent task <name>` creates a task; if task already exists it prints current state/history and can update `--description`
+- `mung review <task> [focus]` runs a one-shot manual review stage (no auto-`finish` instruction)
+- `mung spec-review <task>` runs the spec-review stage once
+- `mung queue <task>` adds an existing task directory into tracked queue state if `task.json` is missing
+- `mung task <name>` creates a task; if task already exists it prints current state/history and can update `--description`
 
 ## End-to-End Code Workflow
 
 ### 1. Initialize repo
 
 ```bash
-metagent init
+mung init
 ```
 
 Creates `.agents/code/` with templates and state folders. On first init, it may run bootstrap if placeholders are still present.
@@ -465,14 +465,14 @@ Creates `.agents/code/` with templates and state folders. On first init, it may 
 Interactive route:
 
 ```bash
-metagent start
+mung start
 ```
 
 Manual route:
 
 ```bash
-metagent task my-feature
-metagent run my-feature
+mung task my-feature
+mung run my-feature
 ```
 
 Task name rules:
@@ -482,19 +482,19 @@ Task name rules:
 
 ### 3. Advance stages with `finish`
 
-The model process is expected to call `metagent finish ...` for each stage.
+The model process is expected to call `mung finish ...` for each stage.
 
 Examples:
 
 ```bash
 # default transition for a review session
-metagent finish review --session <session-id> --task my-feature
+mung finish review --session <session-id> --task my-feature
 
 # explicit next stage (review found issues)
-metagent finish review --session <session-id> --task my-feature --next build
+mung finish review --session <session-id> --task my-feature --next build
 
 # send back to spec-review-issues
-metagent finish review --session <session-id> --task my-feature --next spec-review-issues
+mung finish review --session <session-id> --task my-feature --next spec-review-issues
 ```
 
 Notes:
@@ -504,9 +504,9 @@ Notes:
 ### 4. Run one task vs whole queue
 
 ```bash
-metagent run my-feature        # keep running this task until completion/interruption
-metagent run-next              # run one eligible stage once
-metagent run-queue             # process eligible tasks until queue is empty
+mung run my-feature        # keep running this task until completion/interruption
+mung run-next              # run one eligible stage once
+mung run-queue             # process eligible tasks until queue is empty
 ```
 
 `run-queue` behavior:
@@ -517,9 +517,9 @@ metagent run-queue             # process eligible tasks until queue is empty
 ### 5. Use issue tracking when blocked
 
 ```bash
-metagent issue add --title "Fix flaky test" --task my-feature --type test --priority P1
-metagent issues --task my-feature
-metagent issue resolve <issue-id> --resolution "Stabilized retry logic"
+mung issue add --title "Fix flaky test" --task my-feature --type test --priority P1
+mung issues --task my-feature
+mung issue resolve <issue-id> --resolution "Stabilized retry logic"
 ```
 
 Open issues set task status to `issues` and affect stage progression until resolved.
@@ -529,9 +529,9 @@ Open issues set task status to `issues` and affect stage progression until resol
 Typical loop:
 
 ```bash
-metagent --agent writer init
-metagent --agent writer task my-book
-metagent --agent writer run my-book
+mung --agent writer init
+mung --agent writer task my-book
+mung --agent writer run my-book
 ```
 
 Writer has no issue subsystem. Queue stages are `write` and `edit`.
@@ -541,8 +541,8 @@ Writer has no issue subsystem. Queue stages are `write` and `edit`.
 ### Global (user home)
 
 ```text
-~/.local/bin/metagent
-~/.metagent/
+~/.local/bin/mung
+~/.mung/
   code/
   writer/
 ~/.claude/commands/
@@ -628,7 +628,7 @@ tools/build.sh
 ## Troubleshooting
 
 - `No repo found (missing .agents/ or .git)`:
-  - run inside a git repo, or run `metagent init` first, or set `METAGENT_REPO_ROOT`.
+  - run inside a git repo, or run `mung init` first, or set `METAGENT_REPO_ROOT`.
 - `Task '<name>' is already claimed`:
   - another `run`/`run-queue` is active for that task.
 - `METAGENT_SESSION not set and no unique active session found`:

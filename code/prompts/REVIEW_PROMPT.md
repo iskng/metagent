@@ -36,13 +36,13 @@ Study & scope:
 0b. Study @.agents/code/tasks/{task}/plan.md - Implementation plan
 0c. Study @.agents/code/TECHNICAL_STANDARDS.md - Coding patterns to follow
 0d. Study @.agents/code/AGENTS.md 
-0e. Check existing issues for this task to avoid duplicates: `metagent issues --task {task}`
+0e. Check existing issues for this task to avoid duplicates: `mung issues --task {task}`
 {focus_section}
 
 1. Find all commits for this task: `git log --oneline --grep="{task}"`. For each commit, review the full diff starting with oldest to most recent.
 2. Review each commit for: Spec compliance (matches requirements? missing features? scope creep?), Code quality (follows patterns? duplication? naming?), Correctness (edge cases? bugs? race conditions?), Security (hardcoded secrets? input validation? injection?), Testing (tests exist? meaningful? cover edge cases?), Performance (N+1 queries? unnecessary loops? memory leaks?).
 3. For each finding, create an issue using the CLI. Use `--type spec` for spec issues and `--type build` for build issues:
-   `metagent issue add --title "<short title>" --task "{task}" --priority P2 --type build --source review --stdin-body`
+   `mung issue add --title "<short title>" --task "{task}" --priority P2 --type build --source review --stdin-body`
    Include the detailed problem, file:line, and suggested fix in the body.
 
 4. Think really hard about the spec and research the code to make sure all aspects of the spec ar fully implemented. If you find any aspect of the spec that is not fully implemented you must document what is incomplete in plan.md and then add the steps required to complete the spec. 

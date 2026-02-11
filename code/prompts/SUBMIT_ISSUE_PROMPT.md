@@ -13,14 +13,14 @@ Do **not** debug, fix, or run tests.
 2. Keep it concise and factual; no speculation.
 3. After creating the issue, scan spec file names under `@.agents/code/tasks/*/spec/` and identify the most relevant task/spec(s) by filename.
 4. Ask the user which task to assign the issue to (include your suggested match).
-5. Only assign after the user confirms the task. Use `metagent issue assign <issue-id> --task <taskname>`.
+5. Only assign after the user confirms the task. Use `mung issue assign <issue-id> --task <taskname>`.
 
 ---
 
 ## CLI Template
 
 ```bash
-cat <<'EOF' | metagent issue add --title "{Human-Readable Title}" --priority P2 --type bug --source submit --stdin-body
+cat <<'EOF' | mung issue add --title "{Human-Readable Title}" --priority P2 --type bug --source submit --stdin-body
 ## Description
 {Clear description of the bug}
 
@@ -38,7 +38,7 @@ EOF
 To assign directly (only if instructed), add `--task <taskname>`:
 
 ```bash
-cat <<'EOF' | metagent issue add --title "{Human-Readable Title}" --task <taskname> --priority P2 --type bug --source submit --stdin-body
+cat <<'EOF' | mung issue add --title "{Human-Readable Title}" --task <taskname> --priority P2 --type bug --source submit --stdin-body
 ## Description
 {Clear description of the bug}
 EOF

@@ -306,7 +306,7 @@ Previous plan archived at:
   .agents/code/tasks/{taskname}/plan_archive_{date}.md
 
 Resume build loop:
-  metagent run {taskname}
+  mung run {taskname}
 ```
 
 ---
