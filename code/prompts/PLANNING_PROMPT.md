@@ -10,11 +10,18 @@
 
 3. Study tests, examples and existing implementations, compare against specifications. Update plan.md with items that are missing or incomplete. Search for TODO, minimal implementations, and placeholders.
 
-4. Write plan.md as a bullet point implementation plan sorted by priority:
-{taskname}
-[ ] [task] - blocks: {what this enables}
-[ ] [task]
-[ ] [task]
+4. Write plan.md as a bullet point implementation plan sorted by priority.
+   Every plan item MUST use this exact format:
+   `- [ ] [P1][M][T17] <task description>`
+   Rules:
+   - Priority tag is required: `P0|P1|P2|P3` (do NOT default everything to P3)
+   - Complexity tag is required: `S|M|L`
+   - Task ID tag is required: `T<number>` and must be unique within the file
+   - Keep plan items single-line and concrete (no metadata sub-bullets)
+   Example:
+   - [ ] [P0][L][T1] Implement auth domain types and invariants
+   - [ ] [P1][M][T2] Add token generation and validation per spec/modules.md
+   - [ ] [P2][S][T3] Add regression tests for invalid token handling
 
 5. Study ALL spec files and existing plan before researching codebase.
 

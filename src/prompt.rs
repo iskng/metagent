@@ -27,13 +27,20 @@ pub fn render_prompt(template: &str, context: &PromptContext<'_>) -> String {
     output = output.replace("{repo}", context.repo_root);
     output = output.replace("{issues_header}", context.issues_header);
     output = output.replace("{issues_mode}", context.issues_mode);
-    output = output.replace("{review_finish_instructions}", context.review_finish_instructions);
+    output = output.replace(
+        "{review_finish_instructions}",
+        context.review_finish_instructions,
+    );
     output = output.replace("{parallelism_mode}", context.parallelism_mode);
     output = output.replace("{focus_section}", context.focus_section);
     output
 }
 
-pub fn issues_text(agent: AgentKind, status: Option<&TaskStatus>, task: Option<&str>) -> (String, String) {
+pub fn issues_text(
+    agent: AgentKind,
+    status: Option<&TaskStatus>,
+    task: Option<&str>,
+) -> (String, String) {
     if agent != AgentKind::Code {
         return (String::new(), String::new());
     }

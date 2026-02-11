@@ -213,12 +213,16 @@ Compile analysis into summary:
 
 ### 4.2 Create Fresh plan.md
 
+All plan items must use the canonical format:
+`- [ ] [P1][M][T17] <task description>`
+
 ```markdown
 # Implementation Plan - {taskname}
 
 > Refreshed: {date}
 > Previous plan archived: plan_archive_{date}.md
 > Status: READY
+> Task line format: - [ ] [P1][M][T17] <task description>
 
 ## Current State
 
@@ -226,36 +230,31 @@ Compile analysis into summary:
 
 ## Critical (Blocking)
 
-- [ ] {task} (complexity: S/M/L)
-  - Why critical: {reason}
-  - Files: {files}
+- [ ] [P0][L][T1] {task}
 
 ## High Priority (Core)
 
-- [ ] {task} per spec/{file}.md (complexity: M)
-  - Status: {not started/partial}
-  - Gap: {what's missing}
-  - Files: {files}
+- [ ] [P1][M][T2] {task} per spec/{file}.md
 
 ## Medium Priority
 
-- [ ] {task} (complexity: M)
+- [ ] [P2][M][T3] {task}
 
 ## Low Priority
 
-- [ ] {task}
+- [ ] [P3][S][T4] {task}
 
 ## Carried Forward
 
 > From previous plan - still relevant
 
-- [ ] {issue from old plan}
+- [ ] [P2][M][T5] {issue from old plan}
 
 ## Resolved
 
 > Issues from previous plan that are now fixed
 
-- [x] {was issue, now fixed}
+- [x] [P1][M][T6] {was issue, now fixed}
 
 ## Notes
 

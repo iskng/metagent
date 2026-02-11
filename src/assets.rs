@@ -7,11 +7,14 @@ pub const CODE_BUILD_PROMPT: &str = include_str!("../code/prompts/BUILD_PROMPT.m
 pub const CODE_DEBUG_PROMPT: &str = include_str!("../code/prompts/DEBUG_PROMPT.md");
 pub const CODE_SUBMIT_ISSUE_PROMPT: &str = include_str!("../code/prompts/SUBMIT_ISSUE_PROMPT.md");
 pub const CODE_SUBMIT_TASK_PROMPT: &str = include_str!("../code/prompts/SUBMIT_TASK_PROMPT.md");
-pub const CODE_SUBMIT_HOLD_TASK_PROMPT: &str = include_str!("../code/prompts/SUBMIT_HOLD_TASK_PROMPT.md");
+pub const CODE_SUBMIT_HOLD_TASK_PROMPT: &str =
+    include_str!("../code/prompts/SUBMIT_HOLD_TASK_PROMPT.md");
 pub const CODE_RECOVERY_PROMPT: &str = include_str!("../code/prompts/RECOVERY_PROMPT.md");
 pub const CODE_REFRESH_PROMPT: &str = include_str!("../code/prompts/REFRESH_PROMPT.md");
 pub const CODE_REVIEW_PROMPT: &str = include_str!("../code/prompts/REVIEW_PROMPT.md");
 pub const CODE_SPEC_REVIEW_PROMPT: &str = include_str!("../code/prompts/SPEC_REVIEW_PROMPT.md");
+pub const CODE_SPEC_REVIEW_ISSUES_PROMPT: &str =
+    include_str!("../code/prompts/SPEC_REVIEW_ISSUES_PROMPT.md");
 pub const CODE_RESEARCH_PROMPT: &str = include_str!("../code/prompts/RESEARCH_PROMPT.md");
 pub const CODE_HOW_COMMIT: &str = include_str!("../code/how/commit.md");
 pub const CODE_HOW_PLAN_UPDATE: &str = include_str!("../code/how/plan-update.md");

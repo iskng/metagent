@@ -354,26 +354,22 @@ pub fn parse_issue(content: &str) -> Result<Issue> {
         .get("updated_at")
         .cloned()
         .ok_or_else(|| anyhow!("Missing updated_at"))?;
-    let task = frontmatter
-        .get("task")
-        .and_then(|value| {
-            let trimmed = value.trim();
-            if trimmed.is_empty() || trimmed == "-" {
-                None
-            } else {
-                Some(trimmed.to_string())
-            }
-        });
-    let file = frontmatter
-        .get("file")
-        .and_then(|value| {
-            let trimmed = value.trim();
-            if trimmed.is_empty() || trimmed == "-" {
-                None
-            } else {
-                Some(trimmed.to_string())
-            }
-        });
+    let task = frontmatter.get("task").and_then(|value| {
+        let trimmed = value.trim();
+        if trimmed.is_empty() || trimmed == "-" {
+            None
+        } else {
+            Some(trimmed.to_string())
+        }
+    });
+    let file = frontmatter.get("file").and_then(|value| {
+        let trimmed = value.trim();
+        if trimmed.is_empty() || trimmed == "-" {
+            None
+        } else {
+            Some(trimmed.to_string())
+        }
+    });
     let body = if body.trim().is_empty() {
         None
     } else {
@@ -465,8 +461,7 @@ fn write_text_atomic(path: &Path, content: &str) -> Result<()> {
     let tmp_path = path.with_file_name(format!("{file_name}.tmp"));
     fs::write(&tmp_path, content)
         .with_context(|| format!("Failed to write {}", tmp_path.display()))?;
-    fs::rename(&tmp_path, path)
-        .with_context(|| format!("Failed to write {}", path.display()))?;
+    fs::rename(&tmp_path, path).with_context(|| format!("Failed to write {}", path.display()))?;
     Ok(())
 }
 

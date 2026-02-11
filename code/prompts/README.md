@@ -261,9 +261,9 @@ Fast feedback catches errors quickly:
 4. Generate prioritized plan.md
 
 **Outputs:**
-- `plan.md` with Critical/High/Medium/Low sections
-- Dependency information for each task
-- Complexity estimates (S/M/L)
+- `plan.md` checklist using canonical task lines: `- [ ] [P1][M][T17] <task>`
+- Priority (`P0..P3`) and complexity (`S/M/L`) encoded directly in each task line
+- Unique task IDs (`T<number>`) for stable tracking
 
 ### Phase 3: Build Loop
 

@@ -1,6 +1,7 @@
 use anyhow::{bail, Context, Result};
 use clap::Subcommand;
 use owo_colors::OwoColorize;
+use std::collections::{HashMap, HashSet};
 use std::env;
 use std::fs;
 use std::io::Read;
@@ -19,9 +20,9 @@ use crate::issues::{
 use crate::model::Model;
 use crate::prompt::{issues_text, parallelism_text, render_prompt, PromptContext};
 use crate::state::{
-    claim_task, create_session, create_task_state, has_active_claim, has_active_session, list_tasks,
-    load_session, load_task, save_session, update_session, update_task, SessionState, SessionStatus,
-    TaskState, TaskStatus,
+    claim_task, create_session, create_task_state, has_active_claim, has_active_session,
+    list_tasks, load_session, load_task, save_session, update_session, update_task, SessionState,
+    SessionStatus, TaskState, TaskStatus,
 };
 use crate::util::{
     confirm, get_agent_root, home_dir, now_iso, read_text, task_dir, task_state_path,
@@ -45,8 +46,7 @@ fn link_prompt(target: &Path, link: &Path) -> Result<()> {
     if link.exists() {
         fs::remove_file(link).ok();
     }
-    fs::copy(target, link)
-        .with_context(|| format!("Failed to copy {}", link.display()))?;
+    fs::copy(target, link).with_context(|| format!("Failed to copy {}", link.display()))?;
     Ok(())
 }
 
@@ -94,11 +94,13 @@ pub enum IssueCommands {
         stdin_body: bool,
     },
     Resolve {
+        #[arg(help = "Issue ID (use `metagent issues` to list IDs)")]
         id: String,
         #[arg(long)]
         resolution: Option<String>,
     },
     Assign {
+        #[arg(help = "Issue ID (use `metagent issues` to list IDs)")]
         id: String,
         #[arg(long)]
         task: String,
@@ -106,6 +108,7 @@ pub enum IssueCommands {
         stage: Option<String>,
     },
     Show {
+        #[arg(help = "Issue ID (use `metagent issues` to list IDs)")]
         id: String,
     },
 }
@@ -173,7 +176,9 @@ fn macos_detect_codesign_identity() -> Option<String> {
 #[cfg(target_os = "macos")]
 fn macos_run_codesign(dest: &Path, identity: Option<&str>) -> bool {
     let mut cmd = Command::new("codesign");
-    cmd.arg("--force").stdout(Stdio::null()).stderr(Stdio::null());
+    cmd.arg("--force")
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
     match identity {
         Some(identity) => {
             cmd.args(["--options", "runtime", "--timestamp", "-s", identity]);
@@ -208,7 +213,9 @@ fn macos_post_install(dest: &Path) {
         .status();
 
     let explicit_identity = env::var("METAGENT_CODESIGN_ID").ok();
-    let detected_identity = explicit_identity.clone().or_else(macos_detect_codesign_identity);
+    let detected_identity = explicit_identity
+        .clone()
+        .or_else(macos_detect_codesign_identity);
     let mut signed = macos_run_codesign(dest, detected_identity.as_deref());
     if !signed && explicit_identity.is_none() && detected_identity.is_some() {
         signed = macos_run_codesign(dest, None);
@@ -340,7 +347,11 @@ pub fn cmd_uninstall() -> Result<()> {
     Ok(())
 }
 
-pub fn cmd_init(agent: AgentKind, target: Option<PathBuf>, model_choice: ModelChoice) -> Result<()> {
+pub fn cmd_init(
+    agent: AgentKind,
+    target: Option<PathBuf>,
+    model_choice: ModelChoice,
+) -> Result<()> {
     let target = match target {
         Some(path) => fs::canonicalize(path)?,
         None => env::current_dir()?,
@@ -402,7 +413,6 @@ pub fn cmd_task(
     let task_dir_path = task_dir(&ctx.agent_root, task);
 
     if task_path.exists() {
-        let task_state = load_task(&task_path)?;
         if let Some(description) = description.as_ref() {
             update_task(&task_path, |task_state| {
                 task_state.description = Some(description.clone());
@@ -505,7 +515,11 @@ pub fn cmd_queue(ctx: &CommandContext, task: Option<&str>) -> Result<()> {
 
         let dir = task_dir(&ctx.agent_root, task);
         if !dir.exists() {
-            bail!("Task '{}' not found. Create it with 'metagent task {}'", task, task);
+            bail!(
+                "Task '{}' not found. Create it with 'metagent task {}'",
+                task,
+                task
+            );
         }
 
         let timestamp = now_iso();
@@ -634,6 +648,112 @@ pub fn cmd_queue(ctx: &CommandContext, task: Option<&str>) -> Result<()> {
     Ok(())
 }
 
+pub fn cmd_plan(ctx: &CommandContext, task: &str) -> Result<()> {
+    validate_task_name(task)?;
+    let file_name = if ctx.agent == AgentKind::Code {
+        "plan.md"
+    } else {
+        "editorial_plan.md"
+    };
+    let plan_path = task_dir(&ctx.agent_root, task).join(file_name);
+    if !plan_path.exists() {
+        bail!(
+            "{} not found for task '{}': {}",
+            file_name,
+            task,
+            plan_path.display()
+        );
+    }
+
+    let content = read_text(&plan_path)?;
+    let mut canonical_steps = Vec::new();
+    let mut checklist_steps = Vec::new();
+    let mut id_lines: HashMap<u32, Vec<usize>> = HashMap::new();
+
+    for (index, line) in content.lines().enumerate() {
+        let line_number = index + 1;
+        if let Some(step) = parse_canonical_plan_step(line, line_number) {
+            id_lines.entry(step.id).or_default().push(line_number);
+            canonical_steps.push(step);
+            continue;
+        }
+        if let Some(step) = parse_checklist_step(line, line_number) {
+            checklist_steps.push(step);
+        }
+    }
+
+    if canonical_steps.is_empty() && checklist_steps.is_empty() {
+        println!(
+            "{}",
+            format!("No checklist steps found in {}", plan_path.display()).dimmed()
+        );
+        return Ok(());
+    }
+
+    println!("Plan '{}': {}", task, plan_path.display());
+    let mut open = 0usize;
+    let mut done = 0usize;
+
+    if !canonical_steps.is_empty() {
+        println!("Canonical steps:");
+        for step in &canonical_steps {
+            let marker = if step.done { "x" } else { " " };
+            if step.done {
+                done += 1;
+            } else {
+                open += 1;
+            }
+            println!(
+                "  L{} - [{}] [{}][{}][T{}] {}",
+                step.line, marker, step.priority, step.complexity, step.id, step.title
+            );
+        }
+    }
+
+    if !checklist_steps.is_empty() {
+        println!("Other checklist lines:");
+        for step in &checklist_steps {
+            let marker = if step.done { "x" } else { " " };
+            if step.done {
+                done += 1;
+            } else {
+                open += 1;
+            }
+            println!("  L{} - [{}] {}", step.line, marker, step.title);
+        }
+    }
+
+    let total = open + done;
+    println!();
+    println!("Summary: {} total ({} open, {} done)", total, open, done);
+
+    let mut duplicates: Vec<(u32, Vec<usize>)> = id_lines
+        .into_iter()
+        .filter_map(|(id, mut lines)| {
+            if lines.len() <= 1 {
+                return None;
+            }
+            lines.sort_unstable();
+            Some((id, lines))
+        })
+        .collect();
+    duplicates.sort_by_key(|(id, _)| *id);
+    if !duplicates.is_empty() {
+        println!();
+        println!("Warnings:");
+        for (id, lines) in duplicates {
+            let joined = lines
+                .iter()
+                .map(|line| line.to_string())
+                .collect::<Vec<_>>()
+                .join(", ");
+            println!("  duplicate T{} at lines {}", id, joined);
+        }
+    }
+
+    Ok(())
+}
+
 pub fn cmd_issues(
     ctx: &CommandContext,
     task: Option<String>,
@@ -681,6 +801,7 @@ pub fn cmd_issues(
     println!("{}:", heading);
     for (index, issue) in issues.iter().enumerate() {
         let task_label = issue.task.as_deref().unwrap_or("unassigned");
+        println!("  id: {}", issue.id);
         println!("  [{}] {}: {}", issue.priority, task_label, issue.title);
         if status_filter == IssueStatusFilter::All {
             println!("      status: {}", issue.status);
@@ -713,7 +834,9 @@ pub fn cmd_issue(ctx: &CommandContext, command: IssueCommands) -> Result<()> {
             stage,
             body,
             stdin_body,
-        } => cmd_issue_add(ctx, title, task, priority, issue_type, source, file, stage, body, stdin_body),
+        } => cmd_issue_add(
+            ctx, title, task, priority, issue_type, source, file, stage, body, stdin_body,
+        ),
         IssueCommands::Resolve { id, resolution } => cmd_issue_resolve(ctx, &id, resolution),
         IssueCommands::Assign { id, task, stage } => cmd_issue_assign(ctx, &id, &task, stage),
         IssueCommands::Show { id } => cmd_issue_show(ctx, &id),
@@ -731,9 +854,7 @@ pub fn cmd_delete(ctx: &CommandContext, task: &str, force: bool) -> Result<()> {
     let issues = list_issues(&ctx.agent_root)?;
     let open_issue_ids: Vec<_> = issues
         .iter()
-        .filter(|issue| {
-            issue.status == IssueStatus::Open && issue.task.as_deref() == Some(task)
-        })
+        .filter(|issue| issue.status == IssueStatus::Open && issue.task.as_deref() == Some(task))
         .map(|issue| issue.id.clone())
         .collect();
 
@@ -877,7 +998,13 @@ pub fn cmd_start(ctx: &CommandContext) -> Result<()> {
             }
         }
 
-        let result = run_stage(ctx, task_name.as_deref(), &stage, None, ReviewFinishMode::Queue)?;
+        let result = run_stage(
+            ctx,
+            task_name.as_deref(),
+            &stage,
+            None,
+            ReviewFinishMode::Queue,
+        )?;
         match result {
             StageResult::Finished(session) => {
                 if task_name.is_none() {
@@ -894,7 +1021,10 @@ pub fn cmd_start(ctx: &CommandContext) -> Result<()> {
                         if next_stage == handoff {
                             if let Some(task) = task_name.as_ref() {
                                 println!("Task '{}' is ready.", task);
-                                println!("Run 'metagent run {}' or 'metagent run-queue' to start.", task);
+                                println!(
+                                    "Run 'metagent run {}' or 'metagent run-queue' to start.",
+                                    task
+                                );
                             }
                             return Ok(());
                         }
@@ -945,8 +1075,17 @@ pub fn cmd_run(ctx: &CommandContext, task: &str) -> Result<()> {
     validate_task_name(task)?;
     let task_path = task_state_path(&ctx.agent_root, task);
     if !task_path.exists() {
-        bail!("Task '{}' not found. Run 'metagent queue {}' to add it first.", task, task);
+        bail!(
+            "Task '{}' not found. Run 'metagent queue {}' to add it first.",
+            task,
+            task
+        );
     }
+    reconcile_running_tasks(&ctx.agent_root)?;
+    let claim = claim_task(&ctx.agent_root, task, 3600, &ctx.host)?;
+    let Some(_guard) = claim else {
+        bail!("Task '{}' is already claimed.", task);
+    };
 
     loop {
         let task_state = load_task(&task_path)?;
@@ -973,7 +1112,13 @@ pub fn cmd_run(ctx: &CommandContext, task: &str) -> Result<()> {
             Ok(())
         })?;
 
-        let result = run_stage(ctx, Some(task), &task_state.stage, None, ReviewFinishMode::Queue)?;
+        let result = run_stage(
+            ctx,
+            Some(task),
+            &task_state.stage,
+            None,
+            ReviewFinishMode::Queue,
+        )?;
         match result {
             StageResult::Finished(_) => continue,
             StageResult::Interrupted => {
@@ -997,7 +1142,7 @@ pub fn cmd_run(ctx: &CommandContext, task: &str) -> Result<()> {
     }
 }
 
-pub fn cmd_run_queue(ctx: &CommandContext) -> Result<()> {
+pub fn cmd_run_queue(ctx: &CommandContext, loop_limit: usize) -> Result<()> {
     let tasks = list_tasks(&ctx.agent_root);
     if tasks.is_empty() {
         println!("No tasks");
@@ -1007,7 +1152,8 @@ pub fn cmd_run_queue(ctx: &CommandContext) -> Result<()> {
 
     let mut current_task: Option<String> = None;
     let mut current_claim: Option<crate::state::ClaimGuard> = None;
-    let mut review_cycles = 0usize;
+    let mut review_loops = 0usize;
+    let loop_limit = if loop_limit == 0 { 100 } else { loop_limit };
 
     loop {
         if let Some(task_name) = current_task.clone() {
@@ -1028,7 +1174,11 @@ pub fn cmd_run_queue(ctx: &CommandContext) -> Result<()> {
                 current_claim = None;
                 continue;
             }
-            if !ctx.agent.queue_stages().contains(&task_state.stage.as_str()) {
+            if !ctx
+                .agent
+                .queue_stages()
+                .contains(&task_state.stage.as_str())
+            {
                 println!(
                     "Task '{}' moved to stage '{}' (not handled by run-queue).",
                     task_state.task, task_state.stage
@@ -1064,22 +1214,22 @@ pub fn cmd_run_queue(ctx: &CommandContext) -> Result<()> {
             match result {
                 StageResult::Finished(_) => {
                     if stage_name == "review" {
-                        review_cycles += 1;
-                        if review_cycles >= 2 {
-                            let task_state = load_task(&task_path)?;
-                            if task_state.status == TaskStatus::Issues {
+                        let task_state = load_task(&task_path)?;
+                        if task_state.stage == "build" {
+                            review_loops += 1;
+                            if review_loops >= loop_limit {
                                 update_task(&task_path, |task_state| {
                                     task_state.held = true;
                                     task_state.updated_at = now_iso();
                                     Ok(())
                                 })?;
                                 println!(
-                                    "Task '{}' still has issues after two reviews; moving to backlog.",
-                                    task_state.task
+                                    "Task '{}' exceeded review/build loop limit ({}); moving to backlog.",
+                                    task_state.task, loop_limit
                                 );
                                 current_task = None;
                                 current_claim = None;
-                                review_cycles = 0;
+                                review_loops = 0;
                                 continue;
                             }
                         }
@@ -1117,7 +1267,7 @@ pub fn cmd_run_queue(ctx: &CommandContext) -> Result<()> {
         };
         current_claim = Some(guard);
         current_task = Some(task_state.task);
-        review_cycles = 0;
+        review_loops = 0;
     }
 }
 
@@ -1160,7 +1310,13 @@ pub fn cmd_run_next(ctx: &CommandContext, task: Option<&str>) -> Result<()> {
             Ok(())
         })?;
 
-        let result = run_stage(ctx, Some(task), &task_state.stage, None, ReviewFinishMode::Queue)?;
+        let result = run_stage(
+            ctx,
+            Some(task),
+            &task_state.stage,
+            None,
+            ReviewFinishMode::Queue,
+        )?;
         match result {
             StageResult::Finished(_) => {}
             StageResult::Interrupted => {
@@ -1203,8 +1359,13 @@ pub fn cmd_run_next(ctx: &CommandContext, task: Option<&str>) -> Result<()> {
         Ok(())
     })?;
 
-    let result =
-        run_stage(ctx, Some(&task_state.task), &task_state.stage, None, ReviewFinishMode::Queue)?;
+    let result = run_stage(
+        ctx,
+        Some(&task_state.task),
+        &task_state.stage,
+        None,
+        ReviewFinishMode::Queue,
+    )?;
     match result {
         StageResult::Finished(_) => {}
         StageResult::Interrupted => {
@@ -1285,7 +1446,12 @@ fn cmd_issue_add(
             validate_issue_stage(ctx.agent, stage)?;
         }
         let default_stage = issue_default_stage(ctx.agent, &issue_type);
-        update_task_for_issue(&ctx.agent_root, &task, stage.as_deref(), default_stage.as_deref())?;
+        update_task_for_issue(
+            &ctx.agent_root,
+            &task,
+            stage.as_deref(),
+            default_stage.as_deref(),
+        )?;
     }
 
     println!("Created issue {}", issue.id);
@@ -1295,7 +1461,10 @@ fn cmd_issue_add(
 fn cmd_issue_resolve(ctx: &CommandContext, id: &str, resolution: Option<String>) -> Result<()> {
     let path = issue_path(&ctx.agent_root, id);
     if !path.exists() {
-        bail!("Issue '{}' not found", id);
+        bail!(
+            "Issue '{}' not found (run `metagent issues` to list IDs)",
+            id
+        );
     }
     let mut issue = crate::issues::load_issue(&path)?;
     issue.status = IssueStatus::Resolved;
@@ -1313,11 +1482,19 @@ fn cmd_issue_resolve(ctx: &CommandContext, id: &str, resolution: Option<String>)
     Ok(())
 }
 
-fn cmd_issue_assign(ctx: &CommandContext, id: &str, task: &str, stage: Option<String>) -> Result<()> {
+fn cmd_issue_assign(
+    ctx: &CommandContext,
+    id: &str,
+    task: &str,
+    stage: Option<String>,
+) -> Result<()> {
     validate_task_name(task)?;
     let path = issue_path(&ctx.agent_root, id);
     if !path.exists() {
-        bail!("Issue '{}' not found", id);
+        bail!(
+            "Issue '{}' not found (run `metagent issues` to list IDs)",
+            id
+        );
     }
     let mut issue = crate::issues::load_issue(&path)?;
     issue.task = Some(task.to_string());
@@ -1333,7 +1510,12 @@ fn cmd_issue_assign(ctx: &CommandContext, id: &str, task: &str, stage: Option<St
         validate_issue_stage(ctx.agent, stage)?;
     }
     let default_stage = issue_default_stage(ctx.agent, &issue.issue_type);
-    update_task_for_issue(&ctx.agent_root, task, stage.as_deref(), default_stage.as_deref())?;
+    update_task_for_issue(
+        &ctx.agent_root,
+        task,
+        stage.as_deref(),
+        default_stage.as_deref(),
+    )?;
     println!("Assigned issue {} to {}", id, task);
     Ok(())
 }
@@ -1341,7 +1523,10 @@ fn cmd_issue_assign(ctx: &CommandContext, id: &str, task: &str, stage: Option<St
 fn cmd_issue_show(ctx: &CommandContext, id: &str) -> Result<()> {
     let path = issue_path(&ctx.agent_root, id);
     if !path.exists() {
-        bail!("Issue '{}' not found", id);
+        bail!(
+            "Issue '{}' not found (run `metagent issues` to list IDs)",
+            id
+        );
     }
     let content = read_text(&path)?;
     println!("{}", content);
@@ -1383,7 +1568,10 @@ pub fn cmd_finish(
             task
         } else {
             find_unique_task(&ctx.agent_root, &stage)?.ok_or_else(|| {
-                anyhow::anyhow!("METAGENT_TASK not set and no unique task found for stage '{}'", stage)
+                anyhow::anyhow!(
+                    "METAGENT_TASK not set and no unique task found for stage '{}'",
+                    stage
+                )
             })?
         }
     } else {
@@ -1431,7 +1619,12 @@ pub fn cmd_finish(
             task_state.stage = resolved_next.clone();
             task_state.updated_at = now_iso();
             task_state.last_session = Some(session_id.clone());
-            task_state.status = determine_next_status(&stage, next_stage.is_some(), &resolved_next, has_open_issues);
+            task_state.status = determine_next_status(
+                &stage,
+                next_stage.is_some(),
+                &resolved_next,
+                has_open_issues,
+            );
             Ok(())
         })?;
     }
@@ -1467,11 +1660,17 @@ pub fn cmd_spec_review(ctx: &CommandContext, task: &str) -> Result<()> {
     if !task_path.exists() {
         bail!("Task '{}' not found", task);
     }
-    run_stage(ctx, Some(task), "spec-review", None, ReviewFinishMode::Queue)?;
+    run_stage(
+        ctx,
+        Some(task),
+        "spec-review",
+        None,
+        ReviewFinishMode::Queue,
+    )?;
     Ok(())
 }
 
-pub fn cmd_research(ctx: &CommandContext, task: &str) -> Result<()> {
+pub fn cmd_research(ctx: &CommandContext, task: &str, focus: Option<String>) -> Result<()> {
     ensure_code_agent(ctx)?;
     validate_task_name(task)?;
     let task_path = task_state_path(&ctx.agent_root, task);
@@ -1481,6 +1680,11 @@ pub fn cmd_research(ctx: &CommandContext, task: &str) -> Result<()> {
 
     let prompt = load_prompt_by_name(ctx, "RESEARCH_PROMPT.md")?;
     let repo_root_str = ctx.repo_root.display().to_string();
+    let focus_section = focus.map(|text| {
+        format!(
+            "## FOCUS AREA\n\nFocus on the following:\n> {text}\n\nPrioritize this area first, then continue with full research."
+        )
+    });
     let context = PromptContext {
         repo_root: &repo_root_str,
         task: Some(task),
@@ -1489,7 +1693,7 @@ pub fn cmd_research(ctx: &CommandContext, task: &str) -> Result<()> {
         issues_mode: "",
         review_finish_instructions: "",
         parallelism_mode: "",
-        focus_section: "",
+        focus_section: focus_section.as_deref().unwrap_or(""),
     };
     let rendered = render_prompt(&prompt, &context);
 
@@ -1617,7 +1821,12 @@ fn list_how_topics(ctx: &CommandContext) -> Result<Vec<String>> {
         }
     }
     if topics.is_empty() {
-        topics = ctx.agent.how_topics().into_iter().map(|t| t.to_string()).collect();
+        topics = ctx
+            .agent
+            .how_topics()
+            .into_iter()
+            .map(|t| t.to_string())
+            .collect();
     }
     topics.sort();
     Ok(topics)
@@ -1745,10 +1954,7 @@ pub fn cmd_debug(
     };
     let mut rendered = render_prompt(&prompt, &context);
     if !bug_text.trim().is_empty() {
-        let bug_block = format!(
-            "## Bug Report & Logs\n{}\n\n",
-            bug_text.trim()
-        );
+        let bug_block = format!("## Bug Report & Logs\n{}\n\n", bug_text.trim());
         rendered = format!("{bug_block}{rendered}");
     }
 
@@ -1799,7 +2005,12 @@ fn run_stage(
     } else {
         task_status.clone()
     };
-    let model = resolve_model(&ctx.model_choice, ctx.agent, stage, effective_status.as_ref());
+    let model = resolve_model(
+        &ctx.model_choice,
+        ctx.agent,
+        stage,
+        effective_status.as_ref(),
+    );
 
     let session_id = crate::state::new_session_id();
     let session = create_session(
@@ -1862,7 +2073,7 @@ fn run_stage(
     let session_path = crate::util::session_state_path(&ctx.agent_root, &session_id);
     loop {
         if INTERRUPTED.load(Ordering::SeqCst) {
-            send_signal(&mut child, libc::SIGINT);
+            terminate_child(&mut child);
             return Ok(StageResult::Interrupted);
         }
 
@@ -1996,8 +2207,12 @@ fn resolve_model(
 
 fn reconcile_running_tasks(agent_root: &Path) -> Result<()> {
     let tasks = list_tasks(agent_root);
-    for task in tasks.iter().filter(|t| t.status == TaskStatus::Running && t.stage != "completed") {
-        if has_active_claim(agent_root, &task.task)? || has_active_session(agent_root, &task.task)? {
+    for task in tasks
+        .iter()
+        .filter(|t| t.status == TaskStatus::Running && t.stage != "completed")
+    {
+        if has_active_claim(agent_root, &task.task)? || has_active_session(agent_root, &task.task)?
+        {
             continue;
         }
         let task_path = task_state_path(agent_root, &task.task);
@@ -2084,6 +2299,9 @@ fn determine_next_status(
         return TaskStatus::Completed;
     }
     if stage == "review" && override_next {
+        if next_stage == "spec-review-issues" {
+            return TaskStatus::Pending;
+        }
         return TaskStatus::Issues;
     }
     TaskStatus::Pending
@@ -2127,12 +2345,96 @@ fn parse_issue_source(value: Option<&str>) -> Result<Option<IssueSource>> {
     }
 }
 
+#[derive(Debug)]
+struct CanonicalPlanStep {
+    line: usize,
+    done: bool,
+    priority: String,
+    complexity: String,
+    id: u32,
+    title: String,
+}
+
+#[derive(Debug)]
+struct ChecklistStep {
+    line: usize,
+    done: bool,
+    title: String,
+}
+
+fn parse_checklist_prefix(line: &str) -> Option<(bool, &str)> {
+    let trimmed = line.trim_start();
+    let rest = trimmed.strip_prefix("- [")?;
+    let status = rest.chars().next()?;
+    if status != ' ' && status != 'x' {
+        return None;
+    }
+    let rest = &rest[status.len_utf8()..];
+    let rest = rest.strip_prefix("] ")?;
+    Some((status == 'x', rest))
+}
+
+fn parse_bracket_tag(input: &str) -> Option<(&str, &str)> {
+    let inner = input.strip_prefix('[')?;
+    let end = inner.find(']')?;
+    let tag = &inner[..end];
+    let rest = &inner[end + 1..];
+    Some((tag, rest))
+}
+
+fn parse_canonical_plan_step(line: &str, line_number: usize) -> Option<CanonicalPlanStep> {
+    let (done, rest) = parse_checklist_prefix(line)?;
+    let (priority, rest) = parse_bracket_tag(rest)?;
+    if !matches!(priority, "P0" | "P1" | "P2" | "P3") {
+        return None;
+    }
+    let (complexity, rest) = parse_bracket_tag(rest)?;
+    if !matches!(complexity, "S" | "M" | "L") {
+        return None;
+    }
+    let (id_tag, rest) = parse_bracket_tag(rest)?;
+    let id_part = id_tag.strip_prefix('T')?;
+    if id_part.is_empty()
+        || !id_part.chars().all(|c| c.is_ascii_digit())
+        || (id_part.len() > 1 && id_part.starts_with('0'))
+    {
+        return None;
+    }
+    let id = id_part.parse::<u32>().ok()?;
+    let title = rest.strip_prefix(' ')?.trim();
+    if title.is_empty() {
+        return None;
+    }
+
+    Some(CanonicalPlanStep {
+        line: line_number,
+        done,
+        priority: priority.to_string(),
+        complexity: complexity.to_string(),
+        id,
+        title: title.to_string(),
+    })
+}
+
+fn parse_checklist_step(line: &str, line_number: usize) -> Option<ChecklistStep> {
+    let (done, rest) = parse_checklist_prefix(line)?;
+    let title = rest.trim();
+    if title.is_empty() {
+        return None;
+    }
+    Some(ChecklistStep {
+        line: line_number,
+        done,
+        title: title.to_string(),
+    })
+}
+
 fn issue_default_stage(agent: AgentKind, issue_type: &IssueType) -> Option<String> {
     if agent != AgentKind::Code {
         return None;
     }
     match issue_type {
-        IssueType::Spec => Some("spec".to_string()),
+        IssueType::Spec => Some("spec-review-issues".to_string()),
         _ => Some("build".to_string()),
     }
 }
@@ -2178,9 +2480,9 @@ fn sync_task_status_for_issues(agent_root: &Path, task: &str) -> Result<()> {
         bail!("Task '{}' not found", task);
     }
     let issues = list_issues(agent_root)?;
-    let has_open = issues.iter().any(|issue| {
-        issue.status == IssueStatus::Open && issue.task.as_deref() == Some(task)
-    });
+    let has_open = issues
+        .iter()
+        .any(|issue| issue.status == IssueStatus::Open && issue.task.as_deref() == Some(task));
     update_task(&task_path, |task_state| {
         if has_open {
             task_state.status = TaskStatus::Issues;
@@ -2197,9 +2499,9 @@ fn sync_task_status_for_issues(agent_root: &Path, task: &str) -> Result<()> {
 
 fn task_has_open_issues(agent_root: &Path, task: &str) -> Result<bool> {
     let issues = list_issues(agent_root)?;
-    Ok(issues.iter().any(|issue| {
-        issue.status == IssueStatus::Open && issue.task.as_deref() == Some(task)
-    }))
+    Ok(issues
+        .iter()
+        .any(|issue| issue.status == IssueStatus::Open && issue.task.as_deref() == Some(task)))
 }
 
 fn next_eligible_task(agent: AgentKind, tasks: &[TaskState]) -> Option<TaskState> {
@@ -2249,18 +2551,91 @@ fn next_eligible_task(agent: AgentKind, tasks: &[TaskState]) -> Option<TaskState
 
 fn send_signal(child: &mut std::process::Child, signal: i32) {
     let pid = child.id() as i32;
+    send_signal_to_pid(pid, signal);
+}
+
+fn send_signal_to_pid(pid: i32, signal: i32) {
     unsafe {
         let _ = libc::kill(pid, signal);
     }
 }
 
-fn wait_for_child_exit(child: &mut std::process::Child, timeout: Duration) -> bool {
+fn pid_alive(pid: i32) -> bool {
+    unsafe { libc::kill(pid, 0) == 0 }
+}
+
+fn collect_descendant_pids(root_pid: i32) -> Vec<i32> {
+    let output = match Command::new("ps").args(["-axo", "pid=,ppid="]).output() {
+        Ok(output) if output.status.success() => output,
+        _ => return Vec::new(),
+    };
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let mut children_by_parent: HashMap<i32, Vec<i32>> = HashMap::new();
+    for line in stdout.lines() {
+        let mut parts = line.split_whitespace();
+        let pid = parts.next().and_then(|value| value.parse::<i32>().ok());
+        let ppid = parts.next().and_then(|value| value.parse::<i32>().ok());
+        if let (Some(pid), Some(ppid)) = (pid, ppid) {
+            children_by_parent.entry(ppid).or_default().push(pid);
+        }
+    }
+
+    let mut descendants = Vec::new();
+    let mut stack = vec![root_pid];
+    while let Some(parent) = stack.pop() {
+        if let Some(children) = children_by_parent.get(&parent) {
+            for child in children {
+                descendants.push(*child);
+                stack.push(*child);
+            }
+        }
+    }
+    descendants.sort_unstable();
+    descendants.dedup();
+    descendants
+}
+
+fn signal_process_tree(
+    child: &mut std::process::Child,
+    signal: i32,
+    known_descendants: &mut HashSet<i32>,
+) {
+    let root_pid = child.id() as i32;
+    known_descendants.extend(collect_descendant_pids(root_pid));
+
+    // Signal descendants first so wrapper exits don't orphan deeper children.
+    let mut descendants: Vec<i32> = known_descendants
+        .iter()
+        .copied()
+        .filter(|pid| pid_alive(*pid))
+        .collect();
+    descendants.sort_unstable();
+    descendants.reverse();
+    for pid in descendants {
+        send_signal_to_pid(pid, signal);
+    }
+
+    send_signal(child, signal);
+}
+
+fn wait_for_process_tree_exit(
+    child: &mut std::process::Child,
+    known_descendants: &mut HashSet<i32>,
+    timeout: Duration,
+) -> bool {
     let start = Instant::now();
+    let mut root_exited = false;
     while start.elapsed() < timeout {
-        match child.try_wait() {
-            Ok(Some(_)) => return true,
-            Ok(None) => {}
-            Err(_) => return false,
+        if !root_exited {
+            match child.try_wait() {
+                Ok(Some(_)) => root_exited = true,
+                Ok(None) => {}
+                Err(_) => root_exited = true,
+            }
+        }
+        known_descendants.retain(|pid| pid_alive(*pid));
+        if root_exited && known_descendants.is_empty() {
+            return true;
         }
         thread::sleep(Duration::from_millis(100));
     }
@@ -2269,22 +2644,23 @@ fn wait_for_child_exit(child: &mut std::process::Child, timeout: Duration) -> bo
 
 fn terminate_child(child: &mut std::process::Child) {
     const SIGINT_ATTEMPTS: usize = 3;
+    let mut known_descendants = HashSet::new();
     for _ in 0..SIGINT_ATTEMPTS {
-        send_signal(child, libc::SIGINT);
-        if wait_for_child_exit(child, Duration::from_millis(500)) {
+        signal_process_tree(child, libc::SIGINT, &mut known_descendants);
+        if wait_for_process_tree_exit(child, &mut known_descendants, Duration::from_millis(500)) {
             return;
         }
     }
 
-    send_signal(child, libc::SIGTERM);
-    if wait_for_child_exit(child, Duration::from_secs(1)) {
+    signal_process_tree(child, libc::SIGTERM, &mut known_descendants);
+    if wait_for_process_tree_exit(child, &mut known_descendants, Duration::from_secs(1)) {
         return;
     }
 
-    send_signal(child, libc::SIGKILL);
-    let _ = wait_for_child_exit(child, Duration::from_secs(1));
+    signal_process_tree(child, libc::SIGKILL, &mut known_descendants);
+    let _ = wait_for_process_tree_exit(child, &mut known_descendants, Duration::from_secs(1));
     let _ = child.kill();
-    let _ = wait_for_child_exit(child, Duration::from_secs(1));
+    let _ = wait_for_process_tree_exit(child, &mut known_descendants, Duration::from_secs(1));
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -2316,8 +2692,8 @@ fn build_review_finish_instructions(
     let repo = repo_root.display();
     format!(
         "7. Signal next stage:\n\
-- Spec issues exist (any open): `cd \"{repo}\" && METAGENT_TASK=\"{task}\" metagent --agent code finish review --session \"{session_id}\" --next spec`\n\
-- Only build issues (no spec issues) or spec is not fully implemented: `cd \"{repo}\" && METAGENT_TASK=\"{task}\" metagent --agent code finish review --session \"{session_id}\" --next build`\n\
+- Spec issues exist (any open) or spec needs revision: `cd \"{repo}\" && METAGENT_TASK=\"{task}\" metagent --agent code finish review --session \"{session_id}\" --next spec-review-issues`\n\
+- Only build issues (no spec issues): `cd \"{repo}\" && METAGENT_TASK=\"{task}\" metagent --agent code finish review --session \"{session_id}\" --next build`\n\
 - Pass (no issues): `cd \"{repo}\" && METAGENT_TASK=\"{task}\" metagent --agent code finish review --session \"{session_id}\"`"
     )
 }

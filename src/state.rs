@@ -181,7 +181,8 @@ fn write_json_atomic<T: Serialize>(path: &Path, value: &T) -> Result<()> {
         fs::create_dir_all(parent)
             .with_context(|| format!("Failed to create {}", parent.display()))?;
     }
-    fs::write(&tmp_path, data).with_context(|| format!("Failed to write {}", tmp_path.display()))?;
+    fs::write(&tmp_path, data)
+        .with_context(|| format!("Failed to write {}", tmp_path.display()))?;
     fs::rename(&tmp_path, path).with_context(|| format!("Failed to rename {}", path.display()))?;
     Ok(())
 }
@@ -218,7 +219,10 @@ pub fn save_session(path: &Path, session: &SessionState) -> Result<()> {
     with_lock(path, || write_json_atomic(path, session))
 }
 
-pub fn update_session(path: &Path, update: impl FnOnce(&mut SessionState) -> Result<()>) -> Result<()> {
+pub fn update_session(
+    path: &Path,
+    update: impl FnOnce(&mut SessionState) -> Result<()>,
+) -> Result<()> {
     with_lock(path, || {
         let mut session = load_session(path)?;
         update(&mut session)?;
@@ -376,7 +380,12 @@ pub fn create_task_state(
     Ok(task_state)
 }
 
-pub fn claim_task(agent_root: &Path, task: &str, ttl_seconds: u64, host: &str) -> Result<Option<ClaimGuard>> {
+pub fn claim_task(
+    agent_root: &Path,
+    task: &str,
+    ttl_seconds: u64,
+    host: &str,
+) -> Result<Option<ClaimGuard>> {
     let path = claim_path(agent_root, task);
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)

@@ -13,9 +13,8 @@ fn resolve_binary() -> PathBuf {
         return PathBuf::from(path);
     }
 
-    let manifest_dir = PathBuf::from(
-        std::env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR missing"),
-    );
+    let manifest_dir =
+        PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR missing"));
     let mut candidate = manifest_dir.join("target/debug/metagent");
     if cfg!(windows) {
         candidate.set_extension("exe");
@@ -99,6 +98,26 @@ impl TestEnv {
     fn install_stub_loop(&self, name: &str) {
         let path = self.stub_bin.join(name);
         let script = "#!/bin/sh\ntrap 'exit 0' INT TERM\nwhile true; do sleep 1; done\n";
+        fs::write(&path, script).expect("write stub");
+        let mut perms = fs::metadata(&path).expect("metadata").permissions();
+        perms.set_mode(0o755);
+        fs::set_permissions(&path, perms).expect("chmod");
+    }
+
+    fn install_stub_spawn_tree(&self, name: &str) {
+        let path = self.stub_bin.join(name);
+        let script = r#"#!/bin/sh
+(
+  trap '' INT TERM
+  while true; do sleep 1; done
+) &
+child=$!
+if [ -n "$METAGENT_CHILD_PID_FILE" ]; then
+  printf '%s\n' "$child" > "$METAGENT_CHILD_PID_FILE"
+fi
+trap 'exit 0' INT TERM
+while true; do sleep 1; done
+"#;
         fs::write(&path, script).expect("write stub");
         let mut perms = fs::metadata(&path).expect("metadata").permissions();
         perms.set_mode(0o755);
@@ -203,6 +222,10 @@ fn wait_for_exit(child: &mut std::process::Child) {
     panic!("Timed out waiting for metagent run to exit");
 }
 
+fn pid_alive(pid: i32) -> bool {
+    unsafe { libc::kill(pid, 0) == 0 }
+}
+
 #[test]
 fn install_and_uninstall() {
     let env = TestEnv::new();
@@ -278,18 +301,46 @@ fn set_stage_updates_task() {
     env.run(&["set-stage", "stage-task", "planning"]);
 
     let agent_root = env.repo.join(".agents/code");
-    let task_state = fs::read_to_string(agent_root.join("tasks/stage-task/task.json"))
-        .expect("task.json");
+    let task_state =
+        fs::read_to_string(agent_root.join("tasks/stage-task/task.json")).expect("task.json");
     let task_json: Value = serde_json::from_str(&task_state).expect("parse task.json");
     assert_eq!(task_json["stage"], "planning");
     assert_eq!(task_json["status"], "pending");
 
     env.run(&["set-stage", "stage-task", "review", "--status", "running"]);
-    let task_state = fs::read_to_string(agent_root.join("tasks/stage-task/task.json"))
-        .expect("task.json");
+    let task_state =
+        fs::read_to_string(agent_root.join("tasks/stage-task/task.json")).expect("task.json");
     let task_json: Value = serde_json::from_str(&task_state).expect("parse task.json");
     assert_eq!(task_json["stage"], "review");
     assert_eq!(task_json["status"], "running");
+}
+
+#[test]
+fn plan_command_lists_canonical_steps() {
+    let env = TestEnv::new();
+    env.install_stub_capture("claude");
+
+    env.run(&["init"]);
+    env.run(&["task", "plan-task"]);
+
+    let plan_path = env.repo.join(".agents/code/tasks/plan-task/plan.md");
+    fs::write(
+        &plan_path,
+        r#"# Implementation Plan - plan-task
+
+> Status: READY
+
+- [ ] [P1][M][T17] Implement token validation
+- [x] [P2][S][T18] Add regression tests
+"#,
+    )
+    .expect("write plan");
+
+    let output = env.output(&["plan", "plan-task"]);
+    assert!(output.contains("Canonical steps:"));
+    assert!(output.contains("[P1][M][T17] Implement token validation"));
+    assert!(output.contains("[P2][S][T18] Add regression tests"));
+    assert!(output.contains("Summary: 2 total (1 open, 1 done)"));
 }
 
 #[test]
@@ -330,10 +381,81 @@ fn run_and_finish() {
 
     wait_for_exit(&mut child);
 
-    let task_state = fs::read_to_string(agent_root.join("tasks/runner-task/task.json")).expect("task.json");
+    let task_state =
+        fs::read_to_string(agent_root.join("tasks/runner-task/task.json")).expect("task.json");
     let task_json: Value = serde_json::from_str(&task_state).expect("parse task.json");
     assert_eq!(task_json["stage"], "completed");
     assert_eq!(task_json["status"], "completed");
+}
+
+#[test]
+fn finish_terminates_model_process_tree() {
+    let env = TestEnv::new();
+    env.install_stub_capture("codex");
+    env.install_stub_capture("claude");
+
+    env.run(&["init"]);
+    env.install_stub_spawn_tree("claude");
+    env.run(&["task", "tree-task"]);
+
+    let child_pid_file = env.home.path().join("child_pid.txt");
+    let mut cmd = env.command();
+    cmd.args(["run", "tree-task"])
+        .env("METAGENT_MODEL", "claude")
+        .env("METAGENT_CHILD_PID_FILE", &child_pid_file)
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+    let mut run_child = cmd.spawn().expect("spawn run");
+
+    let agent_root = env.repo.join(".agents/code");
+    let session_id = wait_for_session_for_task(&agent_root, "tree-task");
+
+    let child_pid = {
+        let deadline = Instant::now() + Duration::from_secs(10);
+        loop {
+            if child_pid_file.exists() {
+                let text = fs::read_to_string(&child_pid_file).expect("read child pid");
+                let pid = text.trim().parse::<i32>().expect("parse child pid");
+                break pid;
+            }
+            if Instant::now() >= deadline {
+                panic!("Timed out waiting for child pid file");
+            }
+            thread::sleep(Duration::from_millis(50));
+        }
+    };
+
+    let status = env
+        .command()
+        .args([
+            "finish",
+            "spec",
+            "--next",
+            "completed",
+            "--session",
+            &session_id,
+            "--task",
+            "tree-task",
+        ])
+        .status()
+        .expect("finish");
+    assert!(status.success());
+
+    wait_for_exit(&mut run_child);
+
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while Instant::now() < deadline && pid_alive(child_pid) {
+        thread::sleep(Duration::from_millis(50));
+    }
+    if pid_alive(child_pid) {
+        unsafe {
+            let _ = libc::kill(child_pid, libc::SIGKILL);
+        }
+    }
+    assert!(
+        !pid_alive(child_pid),
+        "expected descendant process {child_pid} to be terminated"
+    );
 }
 
 #[test]
@@ -358,14 +480,22 @@ fn finish_without_session_env() {
 
     let status = env
         .command()
-        .args(["finish", "spec", "--next", "completed", "--task", "no-session"])
+        .args([
+            "finish",
+            "spec",
+            "--next",
+            "completed",
+            "--task",
+            "no-session",
+        ])
         .status()
         .expect("finish");
     assert!(status.success());
 
     wait_for_exit(&mut child);
 
-    let task_state = fs::read_to_string(agent_root.join("tasks/no-session/task.json")).expect("task.json");
+    let task_state =
+        fs::read_to_string(agent_root.join("tasks/no-session/task.json")).expect("task.json");
     let task_json: Value = serde_json::from_str(&task_state).expect("parse task.json");
     assert_eq!(task_json["stage"], "completed");
     assert_eq!(task_json["status"], "completed");
@@ -399,7 +529,9 @@ fn run_queue_completes_tasks_with_stale_claim() {
     fs::write(&stale_claim, serde_json::to_string_pretty(&stale).unwrap()).expect("stale claim");
 
     let mut cmd = env.command();
-    cmd.args(["run-queue"]).stdout(Stdio::null()).stderr(Stdio::null());
+    cmd.args(["run-queue"])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
     let mut child = cmd.spawn().expect("spawn run-queue");
 
     let mut completed = 0;
@@ -433,8 +565,10 @@ fn run_queue_completes_tasks_with_stale_claim() {
 
     wait_for_exit(&mut child);
 
-    let alpha_state = fs::read_to_string(agent_root.join("tasks/alpha/task.json")).expect("alpha task.json");
-    let beta_state = fs::read_to_string(agent_root.join("tasks/beta/task.json")).expect("beta task.json");
+    let alpha_state =
+        fs::read_to_string(agent_root.join("tasks/alpha/task.json")).expect("alpha task.json");
+    let beta_state =
+        fs::read_to_string(agent_root.join("tasks/beta/task.json")).expect("beta task.json");
     let alpha_json: Value = serde_json::from_str(&alpha_state).expect("alpha parse");
     let beta_json: Value = serde_json::from_str(&beta_state).expect("beta parse");
     assert_eq!(alpha_json["status"], "completed");
@@ -635,9 +769,7 @@ fn run_next_injects_issues_even_if_status_drifts() {
         "Repro steps here",
     ]);
 
-    let task_path = env
-        .repo
-        .join(".agents/code/tasks/issue-task/task.json");
+    let task_path = env.repo.join(".agents/code/tasks/issue-task/task.json");
     let mut task_json: Value =
         serde_json::from_str(&fs::read_to_string(&task_path).expect("task.json"))
             .expect("parse task.json");

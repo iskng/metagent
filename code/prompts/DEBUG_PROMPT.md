@@ -227,18 +227,14 @@ EOF
 
 ### 4.2 Update Task Plan (if assigned)
 
-If the issue is assigned to a task, add it to `.agents/code/tasks/{taskname}/plan.md` and include the issue ID:
+If the issue is assigned to a task, add it to `.agents/code/tasks/{taskname}/plan.md` using the canonical line format `- [ ] [P1][M][T17] <task description>` and include the issue ID in the description:
 
 ```markdown
 ## Bugs
 
 > Bugs discovered during implementation - fix before proceeding
 
-- [ ] BUG: {bug-title} (priority: {priority})
-  - Issue: {issue-id}
-  - Root cause: {brief}
-  - Fix approach: {brief}
-  - Blocks: {what can't proceed until fixed}
+- [ ] [{priority}][M][T{next-id}] BUG: {bug-title} (issue: {issue-id})
 ```
 
 ---

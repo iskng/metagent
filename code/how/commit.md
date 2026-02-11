@@ -1,6 +1,6 @@
-# Commit Message Style
-
-- Only commit when there are actual code changes. If only @plan.md or session notes changed, skip committing.
+# GIT COMMIT INSTRUCTIONS
+- The user requests that if there have been any changes to the code you must commit them. 
+- But only commit when there are actual code changes. If only @plan.md or session notes changed, skip committing.
 - Subject format: `feat({task}): <concise summary> (plan: 1,2,3)`
 - Body format: bullets describing major changes, wrapped at ~72 columns.
 - Each bullet should mention the key file/class/module it affects.

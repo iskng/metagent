@@ -7,17 +7,17 @@ use std::sync::atomic::Ordering;
 mod agent;
 mod assets;
 mod commands;
-mod model;
 mod issues;
+mod model;
 mod prompt;
 mod state;
 mod util;
 
 use agent::AgentKind;
 use commands::{
-    cmd_debug, cmd_delete, cmd_finish, cmd_init, cmd_install, cmd_queue, cmd_run, cmd_run_queue,
-    cmd_spec_review, cmd_start, cmd_task, cmd_review, cmd_uninstall, CommandContext, ModelChoice,
-    IssueCommands, INTERRUPTED,
+    cmd_debug, cmd_delete, cmd_finish, cmd_init, cmd_install, cmd_plan, cmd_queue, cmd_review,
+    cmd_run, cmd_run_queue, cmd_spec_review, cmd_start, cmd_task, cmd_uninstall, CommandContext,
+    IssueCommands, ModelChoice, INTERRUPTED,
 };
 use model::Model;
 use util::get_repo_root;
@@ -44,7 +44,9 @@ struct Cli {
 enum Commands {
     Install,
     Uninstall,
-    Init { path: Option<PathBuf> },
+    Init {
+        path: Option<PathBuf>,
+    },
     Start,
     Task {
         name: String,
@@ -53,8 +55,12 @@ enum Commands {
         #[arg(long)]
         description: Option<String>,
     },
-    Hold { name: String },
-    Activate { name: String },
+    Hold {
+        name: String,
+    },
+    Activate {
+        name: String,
+    },
     Finish {
         stage: Option<String>,
         #[arg(long)]
@@ -64,11 +70,20 @@ enum Commands {
         #[arg(long)]
         task: Option<String>,
     },
-    Run { name: String },
+    Run {
+        name: String,
+    },
     #[command(name = "run-next", alias = "rn")]
-    RunNext { name: Option<String> },
+    RunNext {
+        name: Option<String>,
+    },
     #[command(alias = "q")]
-    Queue { task: Option<String> },
+    Queue {
+        task: Option<String>,
+    },
+    Plan {
+        task: String,
+    },
     #[command(name = "delete", alias = "dequeue")]
     Delete {
         name: String,
@@ -80,12 +95,29 @@ enum Commands {
         position: usize,
     },
     #[command(name = "run-queue", alias = "rq")]
-    RunQueue,
-    Review { task: String, focus: Option<String> },
+    RunQueue {
+        #[arg(
+            long,
+            default_value_t = 4,
+            help = "Max review->build loops before holding (0 = 100)"
+        )]
+        r#loop: usize,
+    },
+    Review {
+        task: String,
+        focus: Option<String>,
+    },
     #[command(name = "spec-review")]
-    SpecReview { task: String },
-    Research { task: String },
-    How { topic: Option<String> },
+    SpecReview {
+        task: String,
+    },
+    Research {
+        task: String,
+        focus: Option<String>,
+    },
+    How {
+        topic: Option<String>,
+    },
     #[command(name = "set-stage")]
     SetStage {
         name: String,
@@ -145,7 +177,11 @@ fn main() -> Result<()> {
             let ctx = CommandContext::new(agent, model_choice, repo_root)?;
             cmd_start(&ctx)
         }
-        Commands::Task { name, hold, description } => {
+        Commands::Task {
+            name,
+            hold,
+            description,
+        } => {
             let repo_root = get_repo_root(None)?;
             let ctx = CommandContext::new(agent, model_choice, repo_root)?;
             cmd_task(&ctx, &name, hold, description)
@@ -185,6 +221,11 @@ fn main() -> Result<()> {
             let ctx = CommandContext::new(agent, model_choice, repo_root)?;
             cmd_queue(&ctx, task.as_deref())
         }
+        Commands::Plan { task } => {
+            let repo_root = get_repo_root(None)?;
+            let ctx = CommandContext::new(agent, model_choice, repo_root)?;
+            cmd_plan(&ctx, &task)
+        }
         Commands::Delete { name, force } => {
             let repo_root = get_repo_root(None)?;
             let ctx = CommandContext::new(agent, model_choice, repo_root)?;
@@ -195,10 +236,10 @@ fn main() -> Result<()> {
             let ctx = CommandContext::new(agent, model_choice, repo_root)?;
             commands::cmd_reorder(&ctx, &name, position)
         }
-        Commands::RunQueue => {
+        Commands::RunQueue { r#loop } => {
             let repo_root = get_repo_root(None)?;
             let ctx = CommandContext::new(agent, model_choice, repo_root)?;
-            cmd_run_queue(&ctx)
+            cmd_run_queue(&ctx, r#loop)
         }
         Commands::Review { task, focus } => {
             let repo_root = get_repo_root(None)?;
@@ -210,17 +251,21 @@ fn main() -> Result<()> {
             let ctx = CommandContext::new(agent, model_choice, repo_root)?;
             cmd_spec_review(&ctx, &task)
         }
-        Commands::Research { task } => {
+        Commands::Research { task, focus } => {
             let repo_root = get_repo_root(None)?;
             let ctx = CommandContext::new(agent, model_choice, repo_root)?;
-            commands::cmd_research(&ctx, &task)
+            commands::cmd_research(&ctx, &task, focus)
         }
         Commands::How { topic } => {
             let repo_root = get_repo_root(None)?;
             let ctx = CommandContext::new(agent, model_choice, repo_root)?;
             commands::cmd_how(&ctx, topic.as_deref())
         }
-        Commands::SetStage { name, stage, status } => {
+        Commands::SetStage {
+            name,
+            stage,
+            status,
+        } => {
             let repo_root = get_repo_root(None)?;
             let ctx = CommandContext::new(agent, model_choice, repo_root)?;
             commands::cmd_set_stage(&ctx, &name, &stage, status)

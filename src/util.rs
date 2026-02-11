@@ -50,7 +50,8 @@ pub fn get_agent_root(repo_root: &Path, agent: &str) -> Result<PathBuf> {
 }
 
 pub fn ensure_dir(path: &Path) -> Result<()> {
-    fs::create_dir_all(path).with_context(|| format!("Failed to create directory: {}", path.display()))
+    fs::create_dir_all(path)
+        .with_context(|| format!("Failed to create directory: {}", path.display()))
 }
 
 pub fn write_text(path: &Path, content: &str) -> Result<()> {
@@ -61,7 +62,8 @@ pub fn write_text(path: &Path, content: &str) -> Result<()> {
 }
 
 pub fn read_text(path: &Path) -> Result<String> {
-    let mut file = fs::File::open(path).with_context(|| format!("Failed to open {}", path.display()))?;
+    let mut file =
+        fs::File::open(path).with_context(|| format!("Failed to open {}", path.display()))?;
     let mut buf = String::new();
     file.read_to_string(&mut buf)
         .with_context(|| format!("Failed to read {}", path.display()))?;
@@ -87,7 +89,10 @@ pub fn validate_task_name(name: &str) -> Result<()> {
     if name.contains("..") || name.starts_with('.') {
         bail!("Invalid task name '{name}'");
     }
-    if !name.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-') {
+    if !name
+        .chars()
+        .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+    {
         bail!("Invalid task name '{name}'");
     }
     Ok(())

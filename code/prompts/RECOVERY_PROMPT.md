@@ -148,10 +148,7 @@ Option C - Spec is wrong:
 3. Identify the conflicting changes
 4. Create focused fix in plan.md:
    ```markdown
-   - [ ] RESOLVE: Stabilize {file}
-     - Issue: {describe the conflict}
-     - Decision: {what it should be}
-     - Rationale: {why}
+   - [ ] [P1][M][T{next-id}] RESOLVE: Stabilize {file}
    ```
 5. Resume loop with this as top priority
 
@@ -172,10 +169,7 @@ rg -n "similar_pattern" src/
 2. List all duplicates
 3. Update plan.md:
    ```markdown
-   - [ ] DEDUPLICATE: {concept}
-     - Keep: {file}:{function}
-     - Remove: {file}:{function}
-     - Update callers: {list}
+   - [ ] [P1][M][T{next-id}] DEDUPLICATE: {concept}
    ```
 4. Add to PROMPT.md stronger search rules:
    ```markdown
@@ -210,9 +204,7 @@ rg -n "TODO|FIXME|todo!|unimplemented!|NotImplementedError" src/
 
 3. Update plan.md with each placeholder:
    ```markdown
-   - [ ] PLACEHOLDER: {function} in {file}
-     - Current: Returns default
-     - Needed: Full implementation per spec/{file}.md
+   - [ ] [P1][M][T{next-id}] PLACEHOLDER: {function} in {file}
    ```
 
 4. Escalate priority in prompt:
@@ -260,13 +252,13 @@ rg -n "TODO|FIXME|todo!|unimplemented!|NotImplementedError" src/
 2. Break down large tasks:
    ```markdown
    # Instead of:
-   - [ ] Implement entire auth system (complexity: L)
+   - [ ] [P1][L][T9] Implement entire auth system
    
    # Do:
-   - [ ] Define auth types (complexity: S)
-   - [ ] Implement token generation (complexity: M)
-   - [ ] Implement token validation (complexity: M)
-   - [ ] Implement login endpoint (complexity: M)
+   - [ ] [P1][S][T10] Define auth types
+   - [ ] [P1][M][T11] Implement token generation
+   - [ ] [P1][M][T12] Implement token validation
+   - [ ] [P1][M][T13] Implement login endpoint
    ```
 
 3. Clear blockers:

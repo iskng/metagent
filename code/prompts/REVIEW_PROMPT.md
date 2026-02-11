@@ -41,6 +41,13 @@ Study & scope:
 
 1. Find all commits for this task: `git log --oneline --grep="{task}"`. For each commit, review the full diff starting with oldest to most recent.
 2. Review each commit for: Spec compliance (matches requirements? missing features? scope creep?), Code quality (follows patterns? duplication? naming?), Correctness (edge cases? bugs? race conditions?), Security (hardcoded secrets? input validation? injection?), Testing (tests exist? meaningful? cover edge cases?), Performance (N+1 queries? unnecessary loops? memory leaks?).
+3. For each finding, create an issue using the CLI. Use `--type spec` for spec issues and `--type build` for build issues:
+   `metagent issue add --title "<short title>" --task "{task}" --priority P2 --type build --source review --stdin-body`
+   Include the detailed problem, file:line, and suggested fix in the body.
+
+4. Think really hard about the spec and research the code to make sure all aspects of the spec ar fully implemented. If you find any aspect of the spec that is not fully implemented you must document what is incomplete in plan.md and then add the steps required to complete the spec. 
+
+
 HOW MANY FINDINGS TO RETURN:
 
 Output all findings that the original author would fix if they knew about it. If there is no finding that a person would definitely love to see and fix, prefer outputting no findings. Do not stop at the first qualifying finding. Continue until you've listed every qualifying finding.
@@ -82,7 +89,7 @@ overall_confidence_score: <float 0.0-1.0>
 
 {review_finish_instructions}
 
-999. Spec issues = requirements/architecture → back to spec.
+999. Spec issues = requirements/architecture → back to spec-review-issues you must write why in the plan.md very rare only if major issues with spec not our implementation. Something must be wrong with the spec. 
 9999. Build issues = implementation → back to build.
 99999. When in doubt, it's a build issue (easier to fix).
 999999. One issue per distinct problem.

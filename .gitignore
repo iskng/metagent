@@ -20,5 +20,4 @@
 
 # Agent runtime data
 .agents/code/sessions/
-.agents/code/tasks/
 .agents/code/claims/

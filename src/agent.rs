@@ -29,7 +29,15 @@ impl AgentKind {
 
     pub fn stages(&self) -> &'static [&'static str] {
         match self {
-            Self::Code => &["spec", "spec-review", "planning", "build", "review", "completed"],
+            Self::Code => &[
+                "spec",
+                "spec-review",
+                "spec-review-issues",
+                "planning",
+                "build",
+                "review",
+                "completed",
+            ],
             Self::Writer => &["init", "plan", "write", "edit", "completed"],
         }
     }
@@ -49,10 +57,10 @@ impl AgentKind {
         }
     }
 
-    /// Stages that run-queue will process (build/review only, not planning/specs)
+    /// Stages that run-queue will process (no spec/planning)
     pub fn queue_stages(&self) -> &'static [&'static str] {
         match self {
-            Self::Code => &["build", "review"],
+            Self::Code => &["spec-review-issues", "build", "review"],
             Self::Writer => &["write", "edit"],
         }
     }
@@ -69,6 +77,7 @@ impl AgentKind {
             Self::Code => match stage {
                 "spec" => Some("planning"),
                 "spec-review" => Some("planning"),
+                "spec-review-issues" => Some("planning"),
                 "planning" => Some("build"),
                 "build" => Some("review"),
                 "review" => Some("completed"),
@@ -87,7 +96,15 @@ impl AgentKind {
 
     pub fn valid_finish_stages(&self) -> &'static [&'static str] {
         match self {
-            Self::Code => &["spec", "spec-review", "planning", "build", "review", "task"],
+            Self::Code => &[
+                "spec",
+                "spec-review",
+                "spec-review-issues",
+                "planning",
+                "build",
+                "review",
+                "task",
+            ],
             Self::Writer => &["init", "plan", "write", "edit"],
         }
     }
@@ -97,6 +114,7 @@ impl AgentKind {
             Self::Code => match stage {
                 "spec" => "Spec",
                 "spec-review" => "Spec Review",
+                "spec-review-issues" => "Spec Review Issues",
                 "planning" => "Planning",
                 "build" => "Build",
                 "review" => "Review",
@@ -126,6 +144,7 @@ impl AgentKind {
                     }
                 }
                 "spec-review" => Some(PathBuf::from("SPEC_REVIEW_PROMPT.md")),
+                "spec-review-issues" => Some(PathBuf::from("SPEC_REVIEW_ISSUES_PROMPT.md")),
                 "planning" => Some(PathBuf::from("PLANNING_PROMPT.md")),
                 "build" => Some(PathBuf::from("BUILD_PROMPT.md")),
                 "review" => Some(PathBuf::from("REVIEW_PROMPT.md")),
@@ -160,7 +179,9 @@ impl AgentKind {
     pub fn model_for_stage(&self, stage: &str) -> Option<Model> {
         match self {
             Self::Code => match stage {
-                "spec" | "spec-review" | "planning" | "build" | "review" => Some(Model::Codex),
+                "spec" | "spec-review" | "spec-review-issues" | "planning" | "build" | "review" => {
+                    Some(Model::Codex)
+                }
                 _ => None,
             },
             Self::Writer => None,
@@ -183,6 +204,7 @@ impl AgentKind {
                 "REFRESH_PROMPT.md" => Some(assets::CODE_REFRESH_PROMPT),
                 "REVIEW_PROMPT.md" => Some(assets::CODE_REVIEW_PROMPT),
                 "SPEC_REVIEW_PROMPT.md" => Some(assets::CODE_SPEC_REVIEW_PROMPT),
+                "SPEC_REVIEW_ISSUES_PROMPT.md" => Some(assets::CODE_SPEC_REVIEW_ISSUES_PROMPT),
                 "RESEARCH_PROMPT.md" => Some(assets::CODE_RESEARCH_PROMPT),
                 "how/commit.md" => Some(assets::CODE_HOW_COMMIT),
                 "how/plan-update.md" => Some(assets::CODE_HOW_PLAN_UPDATE),
@@ -203,13 +225,19 @@ impl AgentKind {
             Self::Code => vec![
                 ("BOOTSTRAP_PROMPT.md", assets::CODE_BOOTSTRAP_PROMPT),
                 ("SPEC_PROMPT.md", assets::CODE_SPEC_PROMPT),
-                ("SPEC_EXISTING_TASK_PROMPT.md", assets::CODE_SPEC_EXISTING_PROMPT),
+                (
+                    "SPEC_EXISTING_TASK_PROMPT.md",
+                    assets::CODE_SPEC_EXISTING_PROMPT,
+                ),
                 ("PLANNING_PROMPT.md", assets::CODE_PLANNING_PROMPT),
                 ("BUILD_PROMPT.md", assets::CODE_BUILD_PROMPT),
                 ("DEBUG_PROMPT.md", assets::CODE_DEBUG_PROMPT),
                 ("SUBMIT_ISSUE_PROMPT.md", assets::CODE_SUBMIT_ISSUE_PROMPT),
                 ("SUBMIT_TASK_PROMPT.md", assets::CODE_SUBMIT_TASK_PROMPT),
-                ("SUBMIT_HOLD_TASK_PROMPT.md", assets::CODE_SUBMIT_HOLD_TASK_PROMPT),
+                (
+                    "SUBMIT_HOLD_TASK_PROMPT.md",
+                    assets::CODE_SUBMIT_HOLD_TASK_PROMPT,
+                ),
                 ("RECOVERY_PROMPT.md", assets::CODE_RECOVERY_PROMPT),
                 ("REFRESH_PROMPT.md", assets::CODE_REFRESH_PROMPT),
                 ("REVIEW_PROMPT.md", assets::CODE_REVIEW_PROMPT),
@@ -258,7 +286,10 @@ impl AgentKind {
             Self::Code => vec![
                 ("AGENTS.md", assets::CODE_TEMPLATE_AGENTS),
                 ("SPEC.md", assets::CODE_TEMPLATE_SPEC),
-                ("TECHNICAL_STANDARDS.md", assets::CODE_TEMPLATE_TECHNICAL_STANDARDS),
+                (
+                    "TECHNICAL_STANDARDS.md",
+                    assets::CODE_TEMPLATE_TECHNICAL_STANDARDS,
+                ),
             ],
             Self::Writer => vec![("AGENTS.md", assets::WRITER_TEMPLATE_AGENTS)],
         }
@@ -300,5 +331,4 @@ impl AgentKind {
         }
         Ok(())
     }
-
 }
