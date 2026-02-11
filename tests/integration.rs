@@ -112,8 +112,8 @@ impl TestEnv {
   while true; do sleep 1; done
 ) &
 child=$!
-if [ -n "$METAGENT_CHILD_PID_FILE" ]; then
-  printf '%s\n' "$child" > "$METAGENT_CHILD_PID_FILE"
+if [ -n "$MUNG_CHILD_PID_FILE" ]; then
+  printf '%s\n' "$child" > "$MUNG_CHILD_PID_FILE"
 fi
 trap 'exit 0' INT TERM
 while true; do sleep 1; done
@@ -126,7 +126,7 @@ while true; do sleep 1; done
 
     fn install_stub_capture(&self, name: &str) {
         let path = self.stub_bin.join(name);
-        let script = "#!/bin/sh\nif [ -n \"$METAGENT_PROMPT_FILE\" ]; then\n  printf '%s' \"$*\" > \"$METAGENT_PROMPT_FILE\"\nfi\nexit 0\n";
+        let script = "#!/bin/sh\nif [ -n \"$MUNG_PROMPT_FILE\" ]; then\n  printf '%s' \"$*\" > \"$MUNG_PROMPT_FILE\"\nfi\nexit 0\n";
         fs::write(&path, script).expect("write stub");
         let mut perms = fs::metadata(&path).expect("metadata").permissions();
         perms.set_mode(0o755);
@@ -259,7 +259,7 @@ fn init_runs_bootstrap_when_needed() {
     let status = env
         .command()
         .args(["init"])
-        .env("METAGENT_PROMPT_FILE", &prompt_file)
+        .env("MUNG_PROMPT_FILE", &prompt_file)
         .status()
         .expect("init");
     assert!(status.success());
@@ -401,8 +401,8 @@ fn finish_terminates_model_process_tree() {
     let child_pid_file = env.home.path().join("child_pid.txt");
     let mut cmd = env.command();
     cmd.args(["run", "tree-task"])
-        .env("METAGENT_MODEL", "claude")
-        .env("METAGENT_CHILD_PID_FILE", &child_pid_file)
+        .env("MUNG_MODEL", "claude")
+        .env("MUNG_CHILD_PID_FILE", &child_pid_file)
         .stdout(Stdio::null())
         .stderr(Stdio::null());
     let mut run_child = cmd.spawn().expect("spawn run");
@@ -589,7 +589,7 @@ fn review_focus_injected_into_prompt() {
     let status = env
         .command()
         .args(["review", "review-task", "Focus on caching"])
-        .env("METAGENT_PROMPT_FILE", &prompt_file)
+        .env("MUNG_PROMPT_FILE", &prompt_file)
         .status()
         .expect("review");
     assert!(status.success());
@@ -613,7 +613,7 @@ fn spec_review_renders_prompt() {
     let status = env
         .command()
         .args(["spec-review", "spec-review-task"])
-        .env("METAGENT_PROMPT_FILE", &prompt_file)
+        .env("MUNG_PROMPT_FILE", &prompt_file)
         .status()
         .expect("spec review");
     assert!(status.success());
@@ -633,7 +633,7 @@ fn debug_includes_bug_context() {
     let status = env
         .command()
         .args(["init"])
-        .env("METAGENT_MODEL", "codex")
+        .env("MUNG_MODEL", "codex")
         .status()
         .expect("init");
     assert!(status.success());
@@ -642,8 +642,8 @@ fn debug_includes_bug_context() {
     let status = env
         .command()
         .args(["debug", "login", "fails", "500"])
-        .env("METAGENT_MODEL", "claude")
-        .env("METAGENT_PROMPT_FILE", &prompt_file)
+        .env("MUNG_MODEL", "claude")
+        .env("MUNG_PROMPT_FILE", &prompt_file)
         .status()
         .expect("debug");
     assert!(status.success());
@@ -674,7 +674,7 @@ fn reorder_build_queue_position() {
     let status = env
         .command()
         .args(["run-next"])
-        .env("METAGENT_PROMPT_FILE", &prompt_file)
+        .env("MUNG_PROMPT_FILE", &prompt_file)
         .status()
         .expect("run-next");
     assert!(status.success());
@@ -784,7 +784,7 @@ fn run_next_injects_issues_even_if_status_drifts() {
     let status = env
         .command()
         .args(["run-next", "issue-task"])
-        .env("METAGENT_PROMPT_FILE", &prompt_file)
+        .env("MUNG_PROMPT_FILE", &prompt_file)
         .status()
         .expect("run-next");
     assert!(status.success());
@@ -809,7 +809,7 @@ fn run_held_task_uses_existing_spec_prompt() {
     let status = env
         .command()
         .args(["run", "held-task"])
-        .env("METAGENT_PROMPT_FILE", &prompt_file)
+        .env("MUNG_PROMPT_FILE", &prompt_file)
         .status()
         .expect("run held task");
     assert!(status.success());

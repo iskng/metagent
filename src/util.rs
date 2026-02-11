@@ -1,6 +1,7 @@
 use anyhow::{bail, Context, Result};
 use chrono::{SecondsFormat, Utc};
 use std::env;
+use std::ffi::OsString;
 use std::fs;
 use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
@@ -17,8 +18,21 @@ pub fn home_dir() -> Result<PathBuf> {
     dirs::home_dir().context("Failed to resolve home directory")
 }
 
+pub fn env_var(primary: &str, legacy: &str) -> Option<String> {
+    env::var(primary)
+        .ok()
+        .filter(|value| !value.is_empty())
+        .or_else(|| env::var(legacy).ok().filter(|value| !value.is_empty()))
+}
+
+pub fn env_var_os(primary: &str, legacy: &str) -> Option<OsString> {
+    env::var_os(primary)
+        .filter(|value| !value.is_empty())
+        .or_else(|| env::var_os(legacy).filter(|value| !value.is_empty()))
+}
+
 pub fn get_repo_root(start: Option<PathBuf>) -> Result<PathBuf> {
-    if let Ok(root) = env::var("METAGENT_REPO_ROOT") {
+    if let Some(root) = env_var("MUNG_REPO_ROOT", "METAGENT_REPO_ROOT") {
         return Ok(PathBuf::from(root));
     }
 

@@ -158,7 +158,7 @@ fn spawn_codex_pty() -> io::Result<(Child, Option<File>)> {
         .stdout(slave.try_clone()?)
         .stderr(slave)
         .env("TERM", "xterm-256color");
-    apply_metagent_env(&mut cmd);
+    apply_mung_env(&mut cmd);
 
     unsafe {
         cmd.pre_exec(move || {
@@ -181,7 +181,7 @@ fn spawn_codex_inherit() -> io::Result<(Child, Option<File>)> {
         .stdin(Stdio::inherit())
         .stdout(Stdio::inherit())
         .stderr(Stdio::inherit());
-    apply_metagent_env(&mut cmd);
+    apply_mung_env(&mut cmd);
 
     let child = cmd.spawn()?;
     Ok((child, None))
@@ -287,11 +287,11 @@ fn test_prompt() -> &'static str {
     "Task: codex-exit-test\n\nStart, then wait for shutdown."
 }
 
-fn apply_metagent_env(cmd: &mut Command) {
-    cmd.env("METAGENT_AGENT", "code")
-        .env("METAGENT_SESSION", "exit-test-session")
-        .env("METAGENT_TASK", "codex-exit-test");
+fn apply_mung_env(cmd: &mut Command) {
+    cmd.env("MUNG_AGENT", "code")
+        .env("MUNG_SESSION", "exit-test-session")
+        .env("MUNG_TASK", "codex-exit-test");
     if let Ok(cwd) = std::env::current_dir() {
-        cmd.env("METAGENT_REPO_ROOT", cwd);
+        cmd.env("MUNG_REPO_ROOT", cwd);
     }
 }

@@ -10,7 +10,7 @@
 
 4. If there are any key decisions that the spec author would want to know about but you dont have high confidence in the correct answer think really hard about the best options and present them. 
 
-5. Use this to signal next stage only if you can resolve all of the issues: `cd "{repo}" && METAGENT_TASK="{task}" mung --agent code finish spec-review --session "{session}"`
+5. Use this to signal next stage only if you can resolve all of the issues: `cd "{repo}" && MUNG_TASK="{task}" mung --agent code finish spec-review --session "{session}"`
 
 999. If you are in doubt about any aspect of the spec then research the existing code or any relevant material until it is clear.
 9999. If you can not alleviate doubt, do not signal finish - research and present the key decisions.

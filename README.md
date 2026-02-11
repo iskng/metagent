@@ -444,7 +444,7 @@ mung finish build --session <session-id> --task add-login-rate-limit
 
 - `mung finish`:
   - default stage is `task` (works for `code`; `writer` should pass an explicit stage)
-  - resolves session from `--session`, then `METAGENT_SESSION`, then a unique running session
+  - resolves session from `--session`, then `MUNG_SESSION` (or legacy `METAGENT_SESSION`), then a unique running session
 - `mung review <task> [focus]` runs a one-shot manual review stage (no auto-`finish` instruction)
 - `mung spec-review <task>` runs the spec-review stage once
 - `mung queue <task>` adds an existing task directory into tracked queue state if `task.json` is missing
@@ -498,7 +498,7 @@ mung finish review --session <session-id> --task my-feature --next spec-review-i
 ```
 
 Notes:
-- `--session` can be omitted only when there is exactly one running session (or `METAGENT_SESSION` is set).
+- `--session` can be omitted only when there is exactly one running session (or `MUNG_SESSION` / legacy `METAGENT_SESSION` is set).
 - If a task has open issues, finishing to `completed` is automatically redirected to `build`.
 
 ### 4. Run one task vs whole queue
@@ -588,8 +588,8 @@ Task status values:
 ## Model Selection
 
 Global options/env:
-- `--model <claude|codex>` or `METAGENT_MODEL`
-- `--force-model` or `METAGENT_FORCE_MODEL=1|true|yes`
+- `--model <claude|codex>` or `MUNG_MODEL`
+- `--force-model` or `MUNG_FORCE_MODEL=1|true|yes`
 
 Selection logic summary:
 1. if task has open issues, `codex` is forced unless explicit model + force-model are both set
@@ -597,10 +597,10 @@ Selection logic summary:
 3. otherwise agent stage defaults apply (`code` stages default to `codex`)
 
 Other useful env vars:
-- `METAGENT_AGENT` (default agent)
-- `METAGENT_REPO_ROOT` (override repo root detection)
-- `METAGENT_SESSION` and `METAGENT_TASK` (used by `finish` and model subprocesses)
-- `METAGENT_CODESIGN_ID`, `METAGENT_SKIP_CODESIGN` (macOS install/signing)
+- `MUNG_AGENT` (default agent)
+- `MUNG_REPO_ROOT` (override repo root detection)
+- `MUNG_SESSION` and `MUNG_TASK` (used by `finish` and model subprocesses)
+- `MUNG_CODESIGN_ID`, `MUNG_SKIP_CODESIGN` (macOS install/signing)
 
 ## Development
 
@@ -628,10 +628,10 @@ tools/build.sh
 ## Troubleshooting
 
 - `No repo found (missing .agents/ or .git)`:
-  - run inside a git repo, or run `mung init` first, or set `METAGENT_REPO_ROOT`.
+  - run inside a git repo, or run `mung init` first, or set `MUNG_REPO_ROOT`.
 - `Task '<name>' is already claimed`:
   - another `run`/`run-queue` is active for that task.
-- `METAGENT_SESSION not set and no unique active session found`:
+- `MUNG_SESSION (or METAGENT_SESSION) not set and no unique active session found`:
   - pass `--session <id>` explicitly to `finish`.
 - `Issue tracking is only supported for the code agent`:
   - run issue commands with `--agent code`.

@@ -25,8 +25,8 @@ use crate::state::{
     SessionStatus, TaskState, TaskStatus,
 };
 use crate::util::{
-    confirm, get_agent_root, home_dir, now_iso, read_text, task_dir, task_state_path,
-    validate_task_name, write_text, TerminalGuard,
+    confirm, env_var, env_var_os, get_agent_root, home_dir, now_iso, read_text, task_dir,
+    task_state_path, validate_task_name, write_text, TerminalGuard,
 };
 
 pub static INTERRUPTED: AtomicBool = AtomicBool::new(false);
@@ -201,7 +201,7 @@ fn macos_run_codesign(dest: &Path, identity: Option<&str>) -> bool {
 
 #[cfg(target_os = "macos")]
 fn macos_post_install(dest: &Path) {
-    if env::var_os("METAGENT_SKIP_CODESIGN").is_some() {
+    if env_var_os("MUNG_SKIP_CODESIGN", "METAGENT_SKIP_CODESIGN").is_some() {
         return;
     }
 
@@ -218,7 +218,7 @@ fn macos_post_install(dest: &Path) {
         .stderr(Stdio::null())
         .status();
 
-    let explicit_identity = env::var("METAGENT_CODESIGN_ID").ok();
+    let explicit_identity = env_var("MUNG_CODESIGN_ID", "METAGENT_CODESIGN_ID");
     let detected_identity = explicit_identity
         .clone()
         .or_else(macos_detect_codesign_identity);
@@ -1560,7 +1560,7 @@ pub fn cmd_finish(
     let mut session = load_session(&session_path)?;
 
     let task = task_arg
-        .or_else(|| env::var("METAGENT_TASK").ok())
+        .or_else(|| env_var("MUNG_TASK", "METAGENT_TASK"))
         .or_else(|| session.task.clone());
 
     let task = if stage != "task" {
@@ -1569,7 +1569,7 @@ pub fn cmd_finish(
         } else {
             find_unique_task(&ctx.agent_root, &stage)?.ok_or_else(|| {
                 anyhow::anyhow!(
-                    "METAGENT_TASK not set and no unique task found for stage '{}'",
+                    "MUNG_TASK (or METAGENT_TASK) not set and no unique task found for stage '{}'",
                     stage
                 )
             })?
@@ -1700,18 +1700,16 @@ pub fn cmd_research(ctx: &CommandContext, task: &str, focus: Option<String>) -> 
     let _terminal_guard = TerminalGuard::capture();
     let model = resolve_model(&ctx.model_choice, ctx.agent, "build", None);
     let (cmd, args) = model.command();
-    let status = Command::new(cmd)
+    let mut child = Command::new(cmd);
+    child
         .args(args)
         .arg(rendered)
         .stdin(Stdio::inherit())
         .stdout(Stdio::inherit())
         .stderr(Stdio::inherit())
-        .current_dir(&ctx.repo_root)
-        .env("METAGENT_AGENT", ctx.agent.name())
-        .env("METAGENT_REPO_ROOT", ctx.repo_root.as_os_str())
-        .env("METAGENT_TASK", task)
-        .status()
-        .context("Failed to start research model")?;
+        .current_dir(&ctx.repo_root);
+    apply_process_env(&mut child, ctx, None, Some(task));
+    let status = child.status().context("Failed to start research model")?;
 
     if !status.success() {
         bail!("Research command failed");
@@ -1789,6 +1787,26 @@ fn build_task_history(agent_root: &Path, task: &str) -> Result<String> {
     }
 
     Ok(parts.join("->"))
+}
+
+fn apply_process_env(
+    cmd: &mut Command,
+    ctx: &CommandContext,
+    session_id: Option<&str>,
+    task: Option<&str>,
+) {
+    cmd.env("MUNG_AGENT", ctx.agent.name());
+    cmd.env("METAGENT_AGENT", ctx.agent.name());
+    cmd.env("MUNG_REPO_ROOT", ctx.repo_root.as_os_str());
+    cmd.env("METAGENT_REPO_ROOT", ctx.repo_root.as_os_str());
+    if let Some(session_id) = session_id {
+        cmd.env("MUNG_SESSION", session_id);
+        cmd.env("METAGENT_SESSION", session_id);
+    }
+    if let Some(task) = task {
+        cmd.env("MUNG_TASK", task);
+        cmd.env("METAGENT_TASK", task);
+    }
 }
 
 fn format_stage_history(stage: &str, count: usize) -> String {
@@ -1967,17 +1985,16 @@ pub fn cmd_debug(
     }
 
     let (cmd, args) = Model::Codex.command();
-    let status = Command::new(cmd)
+    let mut child = Command::new(cmd);
+    child
         .args(args)
         .arg(rendered)
         .stdin(Stdio::inherit())
         .stdout(Stdio::inherit())
         .stderr(Stdio::inherit())
-        .current_dir(&ctx.repo_root)
-        .env("METAGENT_AGENT", ctx.agent.name())
-        .env("METAGENT_REPO_ROOT", ctx.repo_root.as_os_str())
-        .status()
-        .context("Failed to start debug model")?;
+        .current_dir(&ctx.repo_root);
+    apply_process_env(&mut child, ctx, None, None);
+    let status = child.status().context("Failed to start debug model")?;
 
     if !status.success() {
         bail!("Debug command failed");
@@ -2070,12 +2087,7 @@ fn run_stage(
     child.stdout(Stdio::inherit());
     child.stderr(Stdio::inherit());
     child.current_dir(&ctx.repo_root);
-    child.env("METAGENT_AGENT", ctx.agent.name());
-    child.env("METAGENT_SESSION", &session_id);
-    child.env("METAGENT_REPO_ROOT", ctx.repo_root.as_os_str());
-    if let Some(task) = task {
-        child.env("METAGENT_TASK", task);
-    }
+    apply_process_env(&mut child, ctx, Some(&session_id), task);
     let mut child = child.spawn().context("Failed to start model process")?;
 
     let session_path = crate::util::session_state_path(&ctx.agent_root, &session_id);
@@ -2177,17 +2189,16 @@ fn run_bootstrap(ctx: &CommandContext) -> Result<()> {
     let prompt_text = render_prompt(&prompt, &context);
 
     let (cmd, args) = model.command();
-    let status = Command::new(cmd)
+    let mut child = Command::new(cmd);
+    child
         .args(args)
         .arg(prompt_text)
         .stdin(Stdio::inherit())
         .stdout(Stdio::inherit())
         .stderr(Stdio::inherit())
-        .current_dir(&ctx.repo_root)
-        .env("METAGENT_AGENT", ctx.agent.name())
-        .env("METAGENT_REPO_ROOT", ctx.repo_root.as_os_str())
-        .status()
-        .context("Failed to start bootstrap model")?;
+        .current_dir(&ctx.repo_root);
+    apply_process_env(&mut child, ctx, None, None);
+    let status = child.status().context("Failed to start bootstrap model")?;
 
     if !status.success() {
         bail!("Bootstrap command failed");
@@ -2710,8 +2721,8 @@ fn build_review_finish_instructions(
     let repo = repo_root.display();
     format!(
         "7. Signal next stage:\n\
-- Spec issues exist (any open) or spec needs revision: `cd \"{repo}\" && METAGENT_TASK=\"{task}\" mung --agent code finish review --session \"{session_id}\" --next spec-review-issues`\n\
-- Only build issues (no spec issues): `cd \"{repo}\" && METAGENT_TASK=\"{task}\" mung --agent code finish review --session \"{session_id}\" --next build`\n\
-- Pass (no issues): `cd \"{repo}\" && METAGENT_TASK=\"{task}\" mung --agent code finish review --session \"{session_id}\"`"
+- Spec issues exist (any open) or spec needs revision: `cd \"{repo}\" && MUNG_TASK=\"{task}\" mung --agent code finish review --session \"{session_id}\" --next spec-review-issues`\n\
+- Only build issues (no spec issues): `cd \"{repo}\" && MUNG_TASK=\"{task}\" mung --agent code finish review --session \"{session_id}\" --next build`\n\
+- Pass (no issues): `cd \"{repo}\" && MUNG_TASK=\"{task}\" mung --agent code finish review --session \"{session_id}\"`"
     )
 }

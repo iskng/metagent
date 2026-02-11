@@ -28,7 +28,7 @@ shared-file races and multi-agent collisions. The Rust CLI is the sole entry poi
   `install`, `uninstall`, `init`
 - `start` orchestrates interview -> spec -> planning then hands off at `build` for `code`.
 - `finish` updates queue stage/status and signals the orchestrator.
-- Prompts embed finish commands with `--session {session}` and `METAGENT_TASK`.
+- Prompts embed finish commands with `--session {session}` and `MUNG_TASK`.
 - Queue is `queue.jsonl` (append + in-place edits), vulnerable to concurrent writes.
 
 ## Proposed Architecture (Rust-First)
@@ -194,7 +194,7 @@ All commands mirror current behavior and flags.
 - Manage issues (add/assign/resolve/show).
 
 ### finish <stage> [--next <stage>] [--session <id>] [--task <task>]
-- Require a session ID from `--session` (prompted) or `METAGENT_SESSION` (fallback).
+- Require a session ID from `--session` (prompted) or `MUNG_SESSION` (fallback).
 - If not provided, and exactly one active session exists, use it.
 - Resolve session -> task/stage; validate stage against agent.
 - Determine `next_stage` from override or agent.

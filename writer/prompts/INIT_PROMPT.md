@@ -249,7 +249,7 @@ After all files are generated:
 3. **Signal completion:**
 
 ```bash
-cd "{repo}" && METAGENT_TASK="{task}" mung --agent writer finish init --session "{session}"
+cd "{repo}" && MUNG_TASK="{task}" mung --agent writer finish init --session "{session}"
 ```
 
 ---

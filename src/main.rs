@@ -1,6 +1,5 @@
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
-use std::env;
 use std::path::PathBuf;
 use std::sync::atomic::Ordering;
 
@@ -20,7 +19,7 @@ use commands::{
     IssueCommands, ModelChoice, INTERRUPTED,
 };
 use model::Model;
-use util::get_repo_root;
+use util::{env_var, get_repo_root};
 
 #[derive(Parser)]
 #[command(name = "mung")]
@@ -162,7 +161,7 @@ fn main() -> Result<()> {
     let cli = Cli::parse();
     let agent_value = cli
         .agent
-        .or_else(|| env::var("METAGENT_AGENT").ok())
+        .or_else(|| env_var("MUNG_AGENT", "METAGENT_AGENT"))
         .unwrap_or_else(|| "code".to_string());
     let agent = AgentKind::from_str(&agent_value)?;
 
@@ -296,9 +295,8 @@ fn main() -> Result<()> {
 }
 
 fn resolve_model_choice(flag: Option<String>, force_model_flag: bool) -> Result<ModelChoice> {
-    let env_model = env::var("METAGENT_MODEL").ok();
-    let env_force = env::var("METAGENT_FORCE_MODEL")
-        .ok()
+    let env_model = env_var("MUNG_MODEL", "METAGENT_MODEL");
+    let env_force = env_var("MUNG_FORCE_MODEL", "METAGENT_FORCE_MODEL")
         .map(|value| matches!(value.trim().to_lowercase().as_str(), "1" | "true" | "yes"))
         .unwrap_or(false);
     let force_model = force_model_flag || env_force;

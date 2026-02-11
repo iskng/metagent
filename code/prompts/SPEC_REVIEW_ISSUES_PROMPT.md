@@ -13,6 +13,6 @@
 
 999. SPECS ONLY - NO CODE - This phase is for specification authoring only.
 9999. FULL SPECIFICATIONS ONLY. NO PLACEHOLDERS. NO STUB DESCRIPTIONS. NO TODO COMMENTS.
-99999. WHEN SPECS COMPLETE: run cd "{repo}" && METAGENT_TASK="{task}" mung --agent code finish spec-review-issues --session "{session}" to signal this phase complete.
+99999. WHEN SPECS COMPLETE: run cd "{repo}" && MUNG_TASK="{task}" mung --agent code finish spec-review-issues --session "{session}" to signal this phase complete.
 {issues_mode}
 {parallelism_mode}

@@ -7,7 +7,7 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use crate::util::{claim_path, now_iso, session_state_path, task_state_path};
+use crate::util::{claim_path, env_var, now_iso, session_state_path, task_state_path};
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
@@ -299,16 +299,14 @@ pub fn resolve_session_id(agent_root: &Path, explicit: Option<String>) -> Result
     if let Some(session) = explicit {
         return Ok(session);
     }
-    if let Ok(session) = std::env::var("METAGENT_SESSION") {
-        if !session.is_empty() {
-            return Ok(session);
-        }
+    if let Some(session) = env_var("MUNG_SESSION", "METAGENT_SESSION") {
+        return Ok(session);
     }
 
     let sessions_dir = agent_root.join("sessions");
     let entries = match fs::read_dir(&sessions_dir) {
         Ok(entries) => entries,
-        Err(_) => bail!("METAGENT_SESSION not set and no active session found"),
+        Err(_) => bail!("MUNG_SESSION (or METAGENT_SESSION) not set and no active session found"),
     };
 
     let local_host = hostname::get()
@@ -341,7 +339,7 @@ pub fn resolve_session_id(agent_root: &Path, explicit: Option<String>) -> Result
         return Ok(running.remove(0));
     }
 
-    bail!("METAGENT_SESSION not set and no unique active session found")
+    bail!("MUNG_SESSION (or METAGENT_SESSION) not set and no unique active session found")
 }
 
 pub fn write_task_state(path: &Path, task: &TaskState) -> Result<()> {

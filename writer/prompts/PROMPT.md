@@ -162,7 +162,7 @@ When problems are found:
 After writing, always advance to the edit stage:
 
 ```bash
-cd "{repo}" && METAGENT_TASK="{task}" mung --agent writer finish write --session "{session}"
+cd "{repo}" && MUNG_TASK="{task}" mung --agent writer finish write --session "{session}"
 ```
 
 The edit stage will humanize the page and determine what comes next (more writing, planning, or completion).
