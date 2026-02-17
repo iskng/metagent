@@ -820,3 +820,46 @@ fn run_held_task_uses_existing_spec_prompt() {
         "expected existing-task spec prompt"
     );
 }
+
+#[test]
+fn task_with_prompt_runs_raw_prompt_and_auto_completes() {
+    let env = TestEnv::new();
+    env.install_stub_capture("claude");
+    env.install_stub_capture("codex");
+
+    env.run(&["init"]);
+    env.run(&[
+        "task",
+        "one-off",
+        "--prompt",
+        "List the top 3 risky areas in this repository.",
+    ]);
+
+    let task_state_path = env.repo.join(".agents/code/tasks/one-off/task.json");
+    let task_state = fs::read_to_string(&task_state_path).expect("task.json");
+    let task_json: Value = serde_json::from_str(&task_state).expect("parse task.json");
+    assert_eq!(task_json["stage"], "build");
+    assert_eq!(
+        task_json["prompt"],
+        "List the top 3 risky areas in this repository."
+    );
+
+    let prompt_file = env.home.path().join("one_off_prompt.txt");
+    let status = env
+        .command()
+        .args(["run-next", "one-off"])
+        .env("MUNG_PROMPT_FILE", &prompt_file)
+        .status()
+        .expect("run-next");
+    assert!(status.success());
+
+    let prompt = fs::read_to_string(&prompt_file).expect("prompt content");
+    assert!(prompt.contains("List the top 3 risky areas in this repository."));
+    assert!(!prompt.contains("Task: one-off"));
+    assert!(!prompt.contains("Study all files in @.agents/code/tasks/one-off/spec/"));
+
+    let task_state = fs::read_to_string(task_state_path).expect("task.json");
+    let task_json: Value = serde_json::from_str(&task_state).expect("parse task.json");
+    assert_eq!(task_json["stage"], "completed");
+    assert_eq!(task_json["status"], "completed");
+}

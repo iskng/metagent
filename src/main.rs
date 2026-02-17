@@ -53,6 +53,8 @@ enum Commands {
         hold: bool,
         #[arg(long)]
         description: Option<String>,
+        #[arg(long)]
+        prompt: Option<String>,
     },
     Hold {
         name: String,
@@ -180,10 +182,11 @@ fn main() -> Result<()> {
             name,
             hold,
             description,
+            prompt,
         } => {
             let repo_root = get_repo_root(None)?;
             let ctx = CommandContext::new(agent, model_choice, repo_root)?;
-            cmd_task(&ctx, &name, hold, description)
+            cmd_task(&ctx, &name, hold, description, prompt)
         }
         Commands::Hold { name } => {
             let repo_root = get_repo_root(None)?;

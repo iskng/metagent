@@ -178,7 +178,7 @@ mung [--agent <code|writer>] [--model <claude|codex>] [--force-model] <command>
 
 ### Task and queue management
 
-- `mung task <name> [--hold] [--description <text>]`
+- `mung task <name> [--hold] [--description <text>] [--prompt <text>]`
 - `mung hold <name>`
 - `mung activate <name>`
 - `mung queue [task]` (alias: `q`)
@@ -258,6 +258,12 @@ Create backlog/held task:
 
 ```bash
 mung task migrate-settings-schema --hold --description "Schema migration after Q2 launch"
+```
+
+Create a one-off queued prompt task (raw prompt only, no stage template):
+
+```bash
+mung task one-off-investigation --prompt "Search the repo for duplicate retry logic and summarize findings."
 ```
 
 Inspect all tasks:
@@ -448,7 +454,8 @@ mung finish build --session <session-id> --task add-login-rate-limit
 - `mung review <task> [focus]` runs a one-shot manual review stage (no auto-`finish` instruction)
 - `mung spec-review <task>` runs the spec-review stage once
 - `mung queue <task>` adds an existing task directory into tracked queue state if `task.json` is missing
-- `mung task <name>` creates a task; if task already exists it prints current state/history and can update `--description`
+- `mung task <name>` creates a task; if task already exists it prints current state/history and can update `--description` / `--prompt`
+- `mung task <name> --prompt <text>` stores a raw one-off prompt, sets task stage to `build` (`code`) or `write` (`writer`), and when run sends only that prompt text to the model
 
 ## End-to-End Code Workflow
 

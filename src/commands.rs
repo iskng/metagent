@@ -414,20 +414,37 @@ pub fn cmd_init(
     Ok(())
 }
 
+fn prompt_task_stage(agent: AgentKind) -> &'static str {
+    match agent {
+        AgentKind::Code => "build",
+        AgentKind::Writer => "write",
+    }
+}
+
 pub fn cmd_task(
     ctx: &CommandContext,
     task: &str,
     hold: bool,
     description: Option<String>,
+    prompt: Option<String>,
 ) -> Result<()> {
     validate_task_name(task)?;
+    let prompt = prompt.map(|value| value.trim().to_string());
+    if matches!(prompt.as_deref(), Some("")) {
+        bail!("Prompt cannot be empty");
+    }
     let task_path = task_state_path(&ctx.agent_root, task);
     let task_dir_path = task_dir(&ctx.agent_root, task);
 
     if task_path.exists() {
-        if let Some(description) = description.as_ref() {
+        if description.is_some() || prompt.is_some() {
             update_task(&task_path, |task_state| {
-                task_state.description = Some(description.clone());
+                if let Some(description) = description.as_ref() {
+                    task_state.description = Some(description.clone());
+                }
+                if let Some(prompt) = prompt.as_ref() {
+                    task_state.prompt = Some(prompt.clone());
+                }
                 task_state.updated_at = now_iso();
                 Ok(())
             })?;
@@ -443,6 +460,11 @@ pub fn cmd_task(
         } else {
             println!("  Description: (none)");
         }
+        if task_state.prompt.is_some() {
+            println!("  Prompt: (custom)");
+        } else {
+            println!("  Prompt: (none)");
+        }
         let history = build_task_history(&ctx.agent_root, task)?;
         if history.is_empty() {
             println!("  History: (none yet)");
@@ -455,24 +477,33 @@ pub fn cmd_task(
 
     ctx.agent.create_task(&task_dir_path, task)?;
     let timestamp = now_iso();
+    let initial_stage = if prompt.is_some() {
+        prompt_task_stage(ctx.agent)
+    } else {
+        ctx.agent.initial_stage()
+    };
     create_task_state(
         &ctx.agent_root,
         ctx.agent.name(),
         task,
-        ctx.agent.initial_stage(),
+        initial_stage,
         &timestamp,
         hold,
         description.clone(),
+        prompt.clone(),
     )?;
 
     println!("Created task: {}", task);
     println!("  Directory: {}", task_dir_path.display());
-    println!("  Stage: {}", ctx.agent.initial_stage());
+    println!("  Stage: {}", initial_stage);
     if hold {
         println!("  Status: held (backlog)");
     }
     if let Some(description) = description {
         println!("  Description: {}", description);
+    }
+    if prompt.is_some() {
+        println!("  Prompt: (custom)");
     }
     Ok(())
 }
@@ -542,6 +573,7 @@ pub fn cmd_queue(ctx: &CommandContext, task: Option<&str>) -> Result<()> {
             ctx.agent.initial_stage(),
             &timestamp,
             false,
+            None,
             None,
         )?;
         println!("Queued '{}' (stage: {})", task, ctx.agent.initial_stage());
@@ -2010,10 +2042,16 @@ fn run_stage(
     review_mode: ReviewFinishMode,
 ) -> Result<StageResult> {
     let _terminal_guard = TerminalGuard::capture();
-    let task_status = task.and_then(|task_name| {
+    let task_state = task.and_then(|task_name| {
         let path = task_state_path(&ctx.agent_root, task_name);
-        load_task(&path).ok().map(|task| task.status)
+        load_task(&path).ok()
     });
+    let task_status = task_state.as_ref().map(|task| task.status.clone());
+    let custom_prompt = task_state
+        .as_ref()
+        .and_then(|task| task.prompt.as_ref())
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty());
     let has_open_issues = if let Some(task_name) = task {
         match task_has_open_issues(&ctx.agent_root, task_name) {
             Ok(has_open) => has_open,
@@ -2048,36 +2086,41 @@ fn run_stage(
         &ctx.host,
     )?;
 
-    let prompt_template = load_stage_prompt(ctx, stage, task)?;
-    let issues_context_status = if stage == "review" {
-        None
+    let rendered = if let Some(prompt) = custom_prompt.as_ref() {
+        prompt.clone()
     } else {
-        effective_status.as_ref()
-    };
-    let (issues_header, issues_mode) = issues_text(ctx.agent, issues_context_status, task);
-    let review_finish_instructions = if stage == "review" {
-        build_review_finish_instructions(review_mode, &ctx.repo_root, task, &session.session_id)
-    } else {
-        String::new()
-    };
-    let parallelism_mode = parallelism_text(model);
-    let focus_section = focus_section.unwrap_or("");
-    let repo_root_str = ctx.repo_root.display().to_string();
-    let prompt_context = PromptContext {
-        repo_root: &repo_root_str,
-        task,
-        session: Some(&session.session_id),
-        issues_header: &issues_header,
-        issues_mode: &issues_mode,
-        review_finish_instructions: &review_finish_instructions,
-        parallelism_mode: &parallelism_mode,
-        focus_section,
-    };
+        let prompt_template = load_stage_prompt(ctx, stage, task)?;
+        let issues_context_status = if stage == "review" {
+            None
+        } else {
+            effective_status.as_ref()
+        };
+        let (issues_header, issues_mode) = issues_text(ctx.agent, issues_context_status, task);
+        let review_finish_instructions = if stage == "review" {
+            build_review_finish_instructions(review_mode, &ctx.repo_root, task, &session.session_id)
+        } else {
+            String::new()
+        };
+        let parallelism_mode = parallelism_text(model);
+        let focus_section = focus_section.unwrap_or("");
+        let repo_root_str = ctx.repo_root.display().to_string();
+        let prompt_context = PromptContext {
+            repo_root: &repo_root_str,
+            task,
+            session: Some(&session.session_id),
+            issues_header: &issues_header,
+            issues_mode: &issues_mode,
+            review_finish_instructions: &review_finish_instructions,
+            parallelism_mode: &parallelism_mode,
+            focus_section,
+        };
 
-    let mut rendered = render_prompt(&prompt_template, &prompt_context);
-    if let Some(task) = task {
-        rendered = format!("Task: {task}\n\n{rendered}");
-    }
+        let mut rendered = render_prompt(&prompt_template, &prompt_context);
+        if let Some(task) = task {
+            rendered = format!("Task: {task}\n\n{rendered}");
+        }
+        rendered
+    };
 
     let (cmd, args) = model.command();
     let mut child = Command::new(cmd);
@@ -2091,7 +2134,7 @@ fn run_stage(
     let mut child = child.spawn().context("Failed to start model process")?;
 
     let session_path = crate::util::session_state_path(&ctx.agent_root, &session_id);
-    loop {
+    let process_status = loop {
         if INTERRUPTED.load(Ordering::SeqCst) {
             terminate_child(&mut child);
             return Ok(StageResult::Interrupted);
@@ -2104,15 +2147,39 @@ fn run_stage(
             }
         }
 
-        if let Some(_status) = child.try_wait()? {
-            break;
+        if let Some(status) = child.try_wait()? {
+            break status;
         }
 
         thread::sleep(Duration::from_millis(500));
-    }
+    };
 
     if let Ok(session_state) = load_session(&session_path) {
         if session_state.status == SessionStatus::Finished {
+            return Ok(StageResult::Finished(session_state));
+        }
+    }
+
+    if custom_prompt.is_some() && process_status.success() {
+        update_session(&session_path, |session_state| {
+            session_state.status = SessionStatus::Finished;
+            session_state.finished_at = Some(now_iso());
+            session_state.next_stage = Some("completed".to_string());
+            Ok(())
+        })?;
+        if let Some(task_name) = task {
+            let task_path = task_state_path(&ctx.agent_root, task_name);
+            if task_path.exists() {
+                update_task(&task_path, |task_state| {
+                    task_state.stage = "completed".to_string();
+                    task_state.status = TaskStatus::Completed;
+                    task_state.last_session = Some(session_id.clone());
+                    task_state.updated_at = now_iso();
+                    Ok(())
+                })?;
+            }
+        }
+        if let Ok(session_state) = load_session(&session_path) {
             return Ok(StageResult::Finished(session_state));
         }
     }

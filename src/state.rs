@@ -83,6 +83,8 @@ pub struct TaskState {
     pub held: bool,
     #[serde(default)]
     pub description: Option<String>,
+    #[serde(default)]
+    pub prompt: Option<String>,
     pub added_at: String,
     pub updated_at: String,
     pub last_session: Option<String>,
@@ -358,6 +360,7 @@ pub fn create_task_state(
     added_at: &str,
     held: bool,
     description: Option<String>,
+    prompt: Option<String>,
 ) -> Result<TaskState> {
     let task_state = TaskState {
         task: task.to_string(),
@@ -367,6 +370,7 @@ pub fn create_task_state(
         queue_rank: None,
         held,
         description,
+        prompt,
         added_at: added_at.to_string(),
         updated_at: added_at.to_string(),
         last_session: None,
