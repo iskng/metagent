@@ -857,6 +857,9 @@ fn task_with_prompt_runs_raw_prompt_and_auto_completes() {
     assert!(prompt.contains("List the top 3 risky areas in this repository."));
     assert!(!prompt.contains("Task: one-off"));
     assert!(!prompt.contains("Study all files in @.agents/code/tasks/one-off/spec/"));
+    assert!(prompt.contains("finish build"));
+    assert!(prompt.contains("--next completed"));
+    assert!(prompt.contains("Do not start a review pass."));
 
     let task_state = fs::read_to_string(task_state_path).expect("task.json");
     let task_json: Value = serde_json::from_str(&task_state).expect("parse task.json");

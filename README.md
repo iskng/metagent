@@ -455,7 +455,7 @@ mung finish build --session <session-id> --task add-login-rate-limit
 - `mung spec-review <task>` runs the spec-review stage once
 - `mung queue <task>` adds an existing task directory into tracked queue state if `task.json` is missing
 - `mung task <name>` creates a task; if task already exists it prints current state/history and can update `--description` / `--prompt`
-- `mung task <name> --prompt <text>` stores a raw one-off prompt, sets task stage to `build` (`code`) or `write` (`writer`), and when run sends only that prompt text to the model
+- `mung task <name> --prompt <text>` stores a raw one-off prompt, sets task stage to `build` (`code`) or `write` (`writer`), and when run appends a required `mung finish ... --next completed` command so the task can close without review
 
 ## End-to-End Code Workflow
 

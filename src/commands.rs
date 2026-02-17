@@ -2087,7 +2087,13 @@ fn run_stage(
     )?;
 
     let rendered = if let Some(prompt) = custom_prompt.as_ref() {
-        prompt.clone()
+        if let Some(task_name) = task {
+            let finish_instruction =
+                build_prompt_task_finish_instruction(ctx, stage, task_name, &session.session_id);
+            format!("{prompt}\n\n{finish_instruction}")
+        } else {
+            prompt.clone()
+        }
     } else {
         let prompt_template = load_stage_prompt(ctx, stage, task)?;
         let issues_context_status = if stage == "review" {
@@ -2791,5 +2797,21 @@ fn build_review_finish_instructions(
 - Spec issues exist (any open) or spec needs revision: `cd \"{repo}\" && MUNG_TASK=\"{task}\" mung --agent code finish review --session \"{session_id}\" --next spec-review-issues`\n\
 - Only build issues (no spec issues): `cd \"{repo}\" && MUNG_TASK=\"{task}\" mung --agent code finish review --session \"{session_id}\" --next build`\n\
 - Pass (no issues): `cd \"{repo}\" && MUNG_TASK=\"{task}\" mung --agent code finish review --session \"{session_id}\"`"
+    )
+}
+
+fn build_prompt_task_finish_instruction(
+    ctx: &CommandContext,
+    stage: &str,
+    task: &str,
+    session_id: &str,
+) -> String {
+    let repo = ctx.repo_root.display();
+    let agent = ctx.agent.name();
+    format!(
+        "## Completion\n\
+When you have fully completed this one-off task, run:\n\
+`cd \"{repo}\" && mung --agent {agent} finish {stage} --session \"{session_id}\" --task \"{task}\" --next completed`\n\
+Then exit immediately. Do not start a review pass."
     )
 }
